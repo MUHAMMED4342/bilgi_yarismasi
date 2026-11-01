@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bilgi Yarışı</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+            color: #0f172a;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #0f172a;
+        }
+
+        /* Uyarı Kutusu */
+        .alert-box {
+            background-color: #fffbebf5;
+            border: 1px solid #fde68a;
+            color: #92400e;
+            padding: 16px;
+            border-radius: 6px;
+            font-size: 15px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        /* Buton Stilleri */
+        button, .btn {
+            display: inline-block;
+            width: 100%;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 6px;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s;
+        }
+
+        .btn-confirm {
+            background-color: #2563eb;
+            color: #ffffff;
+        }
+
+        .btn-confirm:hover {
+            background-color: #1d4ed8;
+        }
+
+        .btn-primary {
+            background-color: #0f172a;
+            color: #ffffff;
+            margin-bottom: 12px;
+        }
+
+        .btn-primary:hover {
+            background-color: #334155;
+        }
+
+        .btn-secondary {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+        }
+
+        .btn-secondary:hover {
+            background-color: #e2e8f0;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Bilgi Yarışı</h1>
+
+        <!-- 1. Uyarı Bölümü -->
+        <div id="warning-section">
+            <div class="alert-box">
+                <strong>Lütfen dikkat:</strong> Bu oyun beta aşamasındadır ve kararsızlıklar olabilir. Ayrıca oyun açık kaynak soru havuzlarını kullanmaktadır.
+            </div>
+            <button id="confirm-btn" class="btn btn-confirm">Tamam</button>
+        </div>
+
+        <!-- 2. Linkler Bölümü (Başlangıçta gizli) -->
+        <div id="links-section" class="hidden">
+            <a href="index2.html" class="btn btn-primary">Tarayıcıdan Oyna</a>
+            <a href="bilgi_yarisi.zip" download class="btn btn-secondary">Windows Uygulamasını İndir</a>
+        </div>
+    </div>
+    <p style="margin-top:18px;font-size:14px;text-align:center"><a href="gizlilik.html">Gizlilik Politikası</a> · <a href="kosullar.html">Kullanım Şartları</a> · <a href="iletisim.html">İletişim</a></p>
+
+    <script>
+        const confirmBtn = document.getElementById('confirm-btn');
+        const warningSection = document.getElementById('warning-section');
+        const linksSection = document.getElementById('links-section');
+
+        confirmBtn.addEventListener('click', () => {
+            // Uyarılı alanı gizle
+            warningSection.classList.add('hidden');
+            // Linkler alanını görünür yap
+            linksSection.classList.remove('hidden');
+        });
+    </script>
+
+</body>
+</html>

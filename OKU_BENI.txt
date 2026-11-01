@@ -1,0 +1,85 @@
+BİLGİ YARIŞMASI - DOSYA REHBERİ
+================================
+
+Bu pakette 2 klasör var. Birbirinden bağımsızdır:
+
+  windows_uygulamasi\   -> Windows masaüstü uygulaması (Python + wxPython)
+  site\                 -> Netlify'a yüklenecek web sitesi
+
+İki klasörde de aynı questions.json (1559 soru) bulunur.
+
+
+--------------------------------------------------------------------
+1) windows_uygulamasi\   (uygulama)
+--------------------------------------------------------------------
+  bilgi_yarismasi.py   Ana uygulama ve arayüz (menüler, oyun, ekranlar)
+  eglence.py           Puan, rütbe, başarım, günlük meydan okuma, arkadaşa sor, seyirciye sor
+  online.py            Online düello altyapısı (eşleşme, MQTT, kurallar)
+  online_ui.py         Online düello ekranları
+  yasak.py             Oyuncu kimliği, yasak listesi kontrolü, rakibi bildirme
+  yasal.py             Gizlilik Politikası ve Kullanım Şartları metinleri
+  questions.json       Soru havuzu (internet yokken yedek olarak kullanılır)
+  requirements.txt     Gerekli Python paketleri
+  calistir.bat         Çift tıkla: gerekli paketleri kurar ve uygulamayı açar
+  exe_olustur.bat      Çift tıkla: 32 bit EXE paketi (BilgiYarismasi_tasinabilir.zip) üretir
+  BilgiYarismasi.spec  PyInstaller ayarı (exe_olustur.bat kullanır, elle dokunma)
+  README.md            Kısa açıklama
+
+  ÖNEMLİ: Tüm .py dosyaları ve .bat dosyaları AYNI klasörde kalmalı.
+
+  EXE yapmak için: exe_olustur.bat dosyasına çift tıkla.
+  Çıkan BilgiYarismasi_tasinabilir.zip dosyasını, siteye koyacağın
+  "bilgi_yarisi.zip" olarak yeniden adlandır (aşağıya bak).
+
+
+--------------------------------------------------------------------
+2) site\   (web sitesi - Netlify'a yüklenir)
+--------------------------------------------------------------------
+Sayfalar:
+  index.html           Giriş sayfası ("Tarayıcıdan oyna" / "Windows uygulamasını indir")
+  index2.html          Oyunun kendisi (tek başına, günlük, çok oyunculu, online)
+  admin.html           Yönetici paneli (yasaklama burada yapılır)
+  gizlilik.html        Gizlilik Politikası
+  kosullar.html        Kullanım Şartları
+  iletisim.html        İletişim formu
+  tesekkur.html        Form gönderildikten sonra açılan teşekkür sayfası
+
+Kod ve stil:
+  eglence.js           Puan, rütbe, başarım, jokerler, günlük meydan okuma (oyun mantığı)
+  stil.css             Tüm sayfaların ortak görünümü
+  service-worker.js    Eski önbelleği temizler
+
+Veri:
+  questions.json       Soru havuzu (masaüstü uygulaması da bunu sitenin adresinden çeker)
+  prompt.txt           Yapay zekâya yeni soru yazdırma talimatı
+
+Ayar:
+  netlify.toml         Netlify ayarları (fonksiyon klasörü, güvenlik başlıkları)
+
+Ban sistemi (sunucu tarafı):
+  netlify\functions\   bans.mjs, report.mjs, admin.mjs  -> HAZIR, dokunma, olduğu gibi yükle
+  fonksiyon-kaynagi\   Yukarıdaki 3 dosyanın okunabilir kaynağı ve testi.
+                       İSTEĞE BAĞLI: yayın için gerekmez, istersen silebilirsin.
+
+Diğer:
+  baslat.bat           Siteyi kendi bilgisayarında denemek için (ban sistemi yerelde çalışmaz)
+  README.md            Ayrıntılı açıklama
+
+  ÖNEMLİ: site klasörünün içeriğini (klasörün kendisini değil, içindekileri)
+  olduğu gibi Netlify'a yükle. "netlify" klasörü de yüklenmeli.
+
+
+--------------------------------------------------------------------
+3) SENİN YAPACAKLARIN (sırayla)
+--------------------------------------------------------------------
+  a) windows_uygulamasi\exe_olustur.bat ile EXE zip'ini üret.
+  b) Çıkan zip'i "bilgi_yarisi.zip" adıyla site\ klasörünün içine koy
+     (index.html'deki "Windows Uygulamasını İndir" bağlantısı bu adı bekler).
+  c) site klasörünün içeriğini Netlify'a yükle.
+  d) Netlify > Site configuration > Environment variables bölümünden
+     ADMIN_PASSWORD adıyla bir parola tanımla, siteyi yeniden yayınla.
+  e) https://bilgiarena.netlify.app/admin.html adresine gir, parolayla oturum aç.
+
+Not: Gizlilik ve Kullanım Şartları metinleri hukuki danışmanlık yerine geçmez;
+yayınlamadan önce bir kez gözden geçir.
+.

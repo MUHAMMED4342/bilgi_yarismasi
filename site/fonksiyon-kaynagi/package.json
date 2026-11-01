@@ -1,0 +1,9 @@
+{
+  "name": "bilgi-yarismasi-fonksiyonlar",
+  "private": true,
+  "type": "module",
+  "description": "Ban listesi, bildirim ve yönetici paneli için Netlify fonksiyonları. 'npm run build' ile ../netlify/functions içine tek dosya olarak paketlenir.",
+  "scripts": { "build": "node build.mjs", "test": "node test.mjs" },
+  "dependencies": { "@netlify/blobs": "^8.1.0" },
+  "devDependencies": { "esbuild": "^0.24.0" }
+}

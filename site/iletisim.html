@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050913">
+<title>İletişim — Bilgi Yarışması</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<header><p class="logo">Bilgi Yarışması</p><a class="tool" href="index.html">← Oyuna dön</a></header>
+<main><div class="card">
+<h1>İletişim</h1>
+<p class="muted">Hatalı soru, öneri ya da başka bir şey için yaz.</p>
+<form class="form" id="cf" action="https://api.web3forms.com/submit" method="POST">
+<input type="hidden" name="access_key" value="56a9509f-7b30-46e7-a000-86dd6bc0daed">
+<input type="hidden" name="redirect" id="rd" value="">
+<input type="hidden" name="subject" value="Bilgi Yarışması - Yeni Mesaj">
+<input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">
+<label for="n">Adınız</label><input id="n" name="name" required autocomplete="name">
+<label for="e">E-posta</label><input id="e" type="email" name="email" required autocomplete="email">
+<label for="m">Mesajınız</label><textarea id="m" name="message" rows="5" required></textarea>
+<p id="cmsg" role="alert"></p>
+<button class="btn" type="submit" id="cbtn">Gönder</button>
+</form>
+<p class="foot"><a href="gizlilik.html">Gizlilik Politikası</a> · <a href="kosullar.html">Kullanım Şartları</a></p></div></main>
+<script>
+/* JavaScript açıksa form arka planda gönderilir ve teşekkür sayfasına biz yönlendiririz
+   (Web3Forms'un "redirect" alanı JavaScript'li formlarda çalışmaz ve https adres ister).
+   JavaScript kapalıysa form düz biçimde gönderilir; redirect alanı yedek olarak dolu kalır. */
+document.getElementById("rd").value=new URL("tesekkur.html",location.href).href;
+const f=document.getElementById("cf"),btn=document.getElementById("cbtn"),msg=document.getElementById("cmsg");
+f.addEventListener("submit",async e=>{
+  e.preventDefault();
+  if(btn.getAttribute("aria-disabled")==="true")return;
+  msg.textContent="";
+  btn.setAttribute("aria-disabled","true");btn.textContent="Gönderiliyor…";
+  try{
+    const fd=new FormData(f);fd.delete("redirect");
+    const r=await fetch(f.action,{method:"POST",body:fd,headers:{Accept:"application/json"}});
+    const d=await r.json().catch(()=>({}));
+    if(r.ok&&d.success!==false){location.href="tesekkur.html";return}
+    throw new Error(d.message||("HTTP "+r.status));
+  }catch(err){
+    msg.textContent="Mesaj gönderilemedi. Biraz sonra tekrar dene, sorun sürerse internet bağlantını kontrol et.";
+    btn.removeAttribute("aria-disabled");btn.textContent="Gönder";
+    btn.focus();
+  }
+});
+</script>
+</body>
+</html>

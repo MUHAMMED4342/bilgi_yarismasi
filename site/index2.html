@@ -1,0 +1,1639 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bilgi Yarışması</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23131f3d'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle' fill='%23f5c451' font-family='Georgia,serif' font-weight='bold'%3E%3F%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#050913">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap">
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<a class="skip" href="#main">Ana içeriğe geç</a>
+<header>
+  <p class="logo">Bilgi Yarışması</p>
+  <div class="tools">
+    <a class="tool" href="iletisim.html">İletişim</a>
+    <button class="tool" id="fm" aria-pressed="true" aria-describedby="fmHelp">Odak kipi<span aria-hidden="true">: açık</span></button>
+    <button class="tool" id="snd" aria-pressed="true">Ses<span aria-hidden="true">: açık</span></button>
+  </div>
+</header>
+<main id="main" tabindex="-1"><div class="card" id="stage"></div></main>
+<div class="sr" id="live" aria-live="polite" role="status"></div>
+<p class="sr" id="fmHelp">Açıkken soru ekranında ekran okuyucu kendiliğinden odak kipine geçer ve oyun kısayolları çalışır: 1 ile 4 arası şık seçer, C soruyu okur, T kalan süreyi söyler, P puan durumunu söyler, J yarı yarıya, F arkadaşa sor, A seyirciye sor, S soruyu değiştirir. Kapalıyken okuma kipinde gezebilirsin.</p>
+
+<section class="chat" id="chat" aria-label="Canlı sohbet" hidden>
+  <div class="chat-head">
+    <h2 id="chatTitle">Canlı sohbet</h2>
+    <button class="tool" id="rptBtn" type="button">Rakibi bildir</button>
+  </div>
+  <div class="log" id="chatLog" role="log" aria-live="polite" aria-label="Sohbet mesajları" tabindex="0"></div>
+  <form id="chatForm">
+    <label for="chatInput">Mesajınız</label>
+    <input id="chatInput" maxlength="240" placeholder="Mesaj yaz…" autocomplete="off">
+    <button type="submit">Gönder</button>
+  </form>
+</section>
+
+<dialog id="rdlg" aria-labelledby="rdt">
+  <h2 id="rdt" tabindex="-1">Rakibi bildir</h2>
+  <p class="muted" id="rwho"></p>
+  <label for="rkind">Neden</label>
+  <select id="rkind"><option value="hakaret">Hakaret / küfür</option><option value="hile">Hile</option><option value="isim">Uygunsuz isim</option><option value="spam">Spam</option><option value="diger">Diğer</option></select>
+  <label for="rtxt">Açıklama (isteğe bağlı)</label>
+  <textarea id="rtxt" maxlength="300" rows="3"></textarea>
+  <p id="rmsg" role="alert"></p>
+  <div class="actions"><button class="btn" id="rsend" type="button">Bildir</button><button class="btn ghost" id="rcancel" type="button">Vazgeç</button></div>
+</dialog>
+<script src="eglence.js"></script>
+<script>
+/* ===== SORU HAVUZU (sadece questions.json) ===== */
+let POOL = [];
+
+async function load(){
+  try {
+    const r = await fetch("questions.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    const list = d.questions || d;
+    if (!Array.isArray(list) || list.length < 10) {
+      throw new Error("questions.json en az 10 soru içermeli. Bulunan: " + (Array.isArray(list)?list.length:0));
+    }
+    const valid = q => q && typeof q.question==="string" && q.question.trim() && Array.isArray(q.options) && q.options.length===4
+      && q.options.every(o=>String(o).trim()) && Number.isInteger(+q.answer) && +q.answer>=0 && +q.answer<4;
+    POOL = list.filter(valid).map(q => [String(q.category||"").trim(), q.question.trim(), q.options.map(o=>String(o).trim()), +q.answer, String(q.explanation||"").trim()]);
+    console.log("questions.json yüklendi:", POOL.length, "soru");
+  } catch (err) {
+    console.error("questions.json yüklenemedi:", err);
+    st.innerHTML = `<h1>Sorular yüklenemedi</h1>
+      <p class="muted">questions.json dosyası okunamadı veya eksik. Hata: ${escapeHtml(err.message||String(err))}</p>
+      <p class="muted">Dosyanın aynı klasörde ve geçerli JSON olduğundan emin olun. En az 10 soru içermeli.</p>
+      <button class="btn" id="retry">Tekrar Dene</button>`;
+    const b = document.getElementById("retry");
+    if (b) b.onclick = () => location.reload();
+  }
+}
+const $=s=>document.querySelector(s),st=$("#stage"),live=$("#live");
+const L="ABCD";
+let G=null;
+/* ===== ODAK KİPİ: soru ekranlarında oyun alanına role="application" verir.
+   NVDA ve JAWS odak bu alana girince kendiliğinden odak/uygulama kipine geçer;
+   böylece 1-4, C, T, P gibi tuşlar okuma kipi tarafından yakalanmaz. ===== */
+let focusMode=true;
+try{const r=localStorage.getItem("by_odak");if(r!==null)focusMode=(r==="1")}catch(e){}
+function playMode(on){
+  if(on&&focusMode){st.setAttribute("role","application");st.setAttribute("aria-label","Oyun alanı")}
+  else{st.removeAttribute("role");st.removeAttribute("aria-label")}
+}
+let myQPref=20;
+try{const r=localStorage.getItem("by_osure");if(r!==null){const v=+r;if([0,20,30,45].includes(v))myQPref=v}}catch(e){}
+let soloLimit=0;
+try{const r=localStorage.getItem("by_sure");if(r!==null){const v=+r;if([0,15,30,45,60,90].includes(v))soloLimit=v}}catch(e){}
+
+/* ===== SES MOTORU (yüksek ses, özgün) ===== */
+let ac=null,on=true;
+function ctx(){if(!ac){try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}if(ac&&ac.state==="suspended")ac.resume();return ac}
+
+/* Master gain ile genel ses seviyesi yükseltildi */
+function masterGain(){
+  const c=ctx(); if(!c) return null;
+  if(!masterGain._g){
+    const g=c.createGain(); g.gain.value=1.6; g.connect(c.destination); masterGain._g=g;
+  }
+  return masterGain._g;
+}
+
+function envTone(f,t,d,type="sine",v=.35,f2,filter){
+  const c=ctx(); if(!c||!on) return;
+  const mg=masterGain(); if(!mg) return;
+  const o=c.createOscillator(),g=c.createGain(),n=c.currentTime+t;
+  o.type=type; o.frequency.setValueAtTime(f,n);
+  if(f2) o.frequency.exponentialRampToValueAtTime(f2,n+d);
+  g.gain.setValueAtTime(0,n);
+  g.gain.linearRampToValueAtTime(v,n+.012);
+  g.gain.exponentialRampToValueAtTime(.0001,n+d);
+  let node=o;
+  if(filter){const fl=c.createBiquadFilter();fl.type=filter.type||"lowpass";fl.frequency.value=filter.freq||1200;fl.Q.value=filter.q||1;o.connect(fl);node=fl}
+  node.connect(g).connect(mg);
+  o.start(n); o.stop(n+d+.05);
+}
+function noise(t,d,v=.25,hp=800){
+  const c=ctx(); if(!c||!on) return;
+  const mg=masterGain(); if(!mg) return;
+  const len=Math.ceil(c.sampleRate*d),buf=c.createBuffer(1,len,c.sampleRate),data=buf.getChannelData(0);
+  for(let i=0;i<len;i++) data[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);
+  const src=c.createBufferSource(); src.buffer=buf;
+  const f=c.createBiquadFilter(); f.type="highpass"; f.frequency.value=hp;
+  const g=c.createGain(); g.gain.value=v;
+  src.connect(f).connect(g).connect(mg); src.start(c.currentTime+t);
+}
+
+const S={
+  tick(){envTone(1200,0,.08,"triangle",.22)},
+  start(){
+    [130.81,164.81,196].forEach((f,i)=>envTone(f,i*.14,2.4,"sawtooth",.12,null,{type:"lowpass",freq:900}));
+    [392,523.25,659.25,783.99].forEach((f,i)=>envTone(f,.6+i*.14,1.2,"triangle",.28));
+    noise(.6,.5,.12,2000);
+  },
+  pick(){envTone(523.25,0,.22,"triangle",.28,392); envTone(659.25,.05,.26,"sine",.2);},
+  beat(n){
+    for(let i=0;i<n;i++){
+      envTone(60,i*.5,.32,"sine",.85,42,{type:"lowpass",freq:220});
+      noise(i*.5,.08,.2,1200);
+    }
+  },
+  ok(){
+    [523.25,659.25,783.99,1046.5].forEach((f,i)=>{
+      envTone(f,i*.09,.8,"triangle",.32);
+      envTone(f*2,i*.09,.5,"sine",.12);
+    });
+    noise(.02,.2,.14,3000);
+  },
+  no(){
+    envTone(196,0,.55,"sawtooth",.30,146,{type:"lowpass",freq:900});
+    envTone(174.61,.06,.8,"sawtooth",.26,130,{type:"lowpass",freq:800});
+    envTone(49,.1,1.0,"sine",.75,40);
+    noise(.1,.25,.18,600);
+  },
+  win(){
+    const seq=[392,392,392,523.25,659.25,523.25,659.25,783.99];
+    seq.forEach((f,i)=>{
+      envTone(f,i*.18,.7,"square",.14);
+      envTone(f/2,i*.18,.7,"triangle",.32);
+    });
+    envTone(1046.5,1.5,1.8,"triangle",.35);
+    noise(1.5,1.4,.12,4000);
+  },
+  chatSent(){envTone(880,0,.12,"triangle",.22); envTone(1318.5,.07,.18,"sine",.16);},
+  chatRecv(){envTone(659.25,0,.12,"sine",.22); envTone(987.77,.09,.2,"triangle",.18);},
+  found(){[523.25,659.25,783.99,1046.5].forEach((f,i)=>envTone(f,i*.08,.55,"triangle",.3));},
+  leave(){
+    envTone(329.63,0,.4,"sawtooth",.22,196,{type:"lowpass",freq:800});
+    envTone(261.63,.15,.55,"triangle",.18,164.81);
+  },
+  next(){envTone(784,0,.12,"triangle",.22);envTone(1174.7,.08,.22,"triangle",.2);noise(0,.12,.08,3000)},
+  extra(){
+    [659.25,783.99,987.77].forEach((f,i)=>envTone(f,i*.1,.55,"triangle",.3));
+    noise(.1,.35,.14,3000);
+  },
+  seri(){
+    [659.25,783.99,987.77,1318.5].forEach((f,i)=>{envTone(f,i*.07,.4,"triangle",.26);envTone(f*2,i*.07,.25,"sine",.08)});
+    noise(.2,.3,.1,4000);
+  },
+  basarim(){
+    [523.25,659.25,783.99].forEach((f,i)=>{envTone(f,i*.14,.5,"triangle",.3);envTone(f/2,i*.14,.5,"sine",.18)});
+    envTone(1046.5,.45,1.3,"triangle",.34);envTone(1318.5,.45,1,"sine",.14);noise(.45,.6,.12,4500);
+  },
+  rekor(){
+    [392,523.25,659.25,783.99,1046.5,1318.5].forEach((f,i)=>{envTone(f,i*.08,.5,"square",.1);envTone(f,i*.08,.6,"triangle",.26)});
+    envTone(1568,.55,1.3,"triangle",.3);noise(.55,.9,.14,5000);
+  },
+  phone(){
+    [0,.7].forEach(r=>{for(let j=0;j<4;j++){envTone(1400,r+j*.09,.08,"square",.1);envTone(1000,r+j*.09,.08,"square",.08)}});
+    noise(1.45,.05,.2,1500);envTone(880,1.5,.15,"sine",.2);
+  },
+  crowd(){
+    noise(0,1.1,.22,500);noise(.2,.9,.16,1500);
+    envTone(440,0,.5,"sine",.08);envTone(587.33,.35,.8,"triangle",.14);
+  },
+  swap(){
+    envTone(300,0,.35,"sine",.22,1400);noise(0,.35,.14,1500);envTone(1400,.3,.15,"triangle",.16);
+  }
+};
+$("#fm").onclick=e=>{
+  focusMode=!focusMode;
+  try{localStorage.setItem("by_odak",focusMode?"1":"0")}catch(err){}
+  const b=e.currentTarget;b.setAttribute("aria-pressed",String(focusMode));
+  b.innerHTML='Odak kipi<span aria-hidden="true">: '+(focusMode?"açık":"kapalı")+'</span>';
+  playMode(!!st.querySelector(".opts"));
+};
+(()=>{const b=$("#fm");b.setAttribute("aria-pressed",String(focusMode));b.innerHTML='Odak kipi<span aria-hidden="true">: '+(focusMode?"açık":"kapalı")+'</span>'})();
+new MutationObserver(()=>{ if(!st.querySelector(".opts")) playMode(false); }).observe(st,{childList:true});
+$("#snd").onclick=e=>{on=!on;const b=e.currentTarget;b.setAttribute("aria-pressed",String(on));b.innerHTML='Ses<span aria-hidden="true">: '+(on?"açık":"kapalı")+'</span>';if(!on)stopWaiting()};
+
+/* ===== OYUNCU KİMLİĞİ, YASAK LİSTESİ, BİLDİRİM ===== */
+const SARTLAR_SURUM="2026-10-31";
+let _pid="";
+function myPid(){
+  if(_pid)return _pid;
+  let p="";try{p=localStorage.getItem("by_pid")||""}catch(e){}
+  if(!/^[a-f0-9]{16}$/.test(p)){
+    const a=new Uint8Array(8);
+    if(window.crypto&&crypto.getRandomValues)crypto.getRandomValues(a);else for(let i=0;i<8;i++)a[i]=Math.random()*256;
+    p=[...a].map(x=>x.toString(16).padStart(2,"0")).join("");
+    try{localStorage.setItem("by_pid",p)}catch(e){}
+  }
+  return _pid=p;
+}
+const BANNED=new Map();   /* kimlik -> bitiş (0 = kalıcı) */
+async function refreshBans(){
+  try{
+    const c=new AbortController(),t=setTimeout(()=>c.abort(),5000);
+    const r=await fetch("/api/bans?t="+Date.now(),{cache:"no-store",signal:c.signal});clearTimeout(t);
+    if(!r.ok)return false;
+    const d=await r.json();BANNED.clear();
+    (d.bans||[]).forEach(b=>{if(/^[a-f0-9]{16}$/.test(b.id)&&(!b.until||b.until>Date.now()))BANNED.set(b.id,b.until||0)});
+    return true;
+  }catch(e){return false}   /* sunucuya ulaşılamazsa herkesi engellememek için serbest bırakılır */
+}
+const iAmBanned=()=>BANNED.has(myPid());
+async function guard(fn){await refreshBans();if(iAmBanned()){showBanned();return}fn()}
+function showBanned(){
+  destroyPeer();onlineState=null;stopWaiting();chatToggle(false);playMode(false);
+  const u=BANNED.get(myPid()),when=u?new Date(u).toLocaleString("tr-TR",{dateStyle:"long",timeStyle:"short"})+" tarihine kadar":"süresiz olarak";
+  st.innerHTML=`<h1 id="bt" tabindex="-1">Online erişimin kapalı</h1>
+  <p class="muted">Bu cihazın online oynaması ${when} kapatıldı. Tek başına, günlük meydan okuma ve çok oyunculu modlar kullanılabilir. Yanlış olduğunu düşünüyorsan oyuncu kimliğinle itiraz edebilirsin.</p>
+  <p>Oyuncu kimliğin: <code>${myPid()}</code></p>
+  <div class="menu"><a class="btn ghost" href="iletisim.html">İtiraz / iletişim</a><a class="btn ghost" href="kosullar.html">Kullanım Şartları</a><button class="btn" id="back">Ana menü</button></div>`;
+  live.textContent="Online erişimin kapalı. "+when+". Tek başına modlar kullanılabilir.";
+  $("#back").onclick=home;$("#bt").focus();
+}
+let oppPid="";
+function openReport(){
+  if(!oppPid&&!oppName){return}
+  $("#rwho").textContent="Bildirilen oyuncu: "+(oppName||"Rakip");$("#rmsg").textContent="";$("#rtxt").value="";
+  const d=$("#rdlg");if(d.showModal)d.showModal();else d.setAttribute("open","");$("#rkind").focus();
+}
+$("#rptBtn").onclick=openReport;
+$("#rcancel").onclick=()=>{const d=$("#rdlg");d.close?d.close():d.removeAttribute("open");$("#rptBtn").focus()};
+$("#rsend").onclick=async()=>{
+  const btn=$("#rsend");btn.disabled=true;$("#rmsg").textContent="Gönderiliyor…";
+  try{
+    const r=await fetch("/api/report",{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({reporter:myPid(),target:{id:oppPid,name:oppName},kind:$("#rkind").value,reason:$("#rtxt").value})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error||("Hata "+r.status));
+    const dl=$("#rdlg");dl.close?dl.close():dl.removeAttribute("open");
+    addChatSys("Bildirimin yöneticiye iletildi. Teşekkürler.");live.textContent="Bildirimin yöneticiye iletildi. Teşekkürler.";$("#rptBtn").focus();
+  }catch(e){$("#rmsg").textContent="Bildirim gönderilemedi: "+e.message}
+  btn.disabled=false;
+};
+
+/* ===== YARDIMCI ===== */
+const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+function buildQuestions(n){
+  if(!POOL || POOL.length < 10) throw new Error("Soru havuzu yetersiz.");
+  const count = Math.min(n||10, POOL.length);
+  return shuf(POOL).slice(0, count).map(q=>{
+    const o = q[2].map((t,i)=>({t, c: i === q[3]}));
+    return { cat: q[0], q: q[1], o: shuf(o), e: q[4] || "" };
+  });
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+/* ===== GİRİŞ ===== */
+let myName="";
+function home(){
+  stopSoloTimer();stopWaiting();destroyPeer();G=null;onlineState=null;chatToggle(false);
+  st.innerHTML=`
+  <div class="hero">
+    <div class="emblem" aria-hidden="true">?</div>
+    <h1>Bilgi Yarışması</h1>
+    <p class="muted lead">Puan topla, rütbe atla, arkadaşlarınla yarış ya da online rekabete gir.</p>
+    <p class="funnote" id="fun"></p>
+  </div>
+  <div class="menu">
+    <button class="btn" id="solo">Tek Başına Oyna</button>
+    <button class="btn ghost" id="daily">Günün Meydan Okuması</button>
+    <button class="btn ghost" id="multi">Çok Oyunculu (2-4 kişi, aynı cihazda)</button>
+    <button class="btn ghost" id="online">Online Oyna</button>
+    <button class="btn ghost" id="prof">Profilim (rütbe, rekorlar, başarımlar)</button>
+  </div>
+  <p id="err" role="alert"></p>
+  <p class="foot"><a href="iletisim.html">Hatalı soru bildir / iletişim</a> · <a href="gizlilik.html">Gizlilik Politikası</a> · <a href="kosullar.html">Kullanım Şartları</a></p>`;
+
+  PROF=EG.loadProfile();
+  let fun=EG.rankLine(PROF)+" ";
+  fun+=EG.dailyPlayed(PROF)?`Bugünün meydan okumasından ${PROF.gunluk_puan} puan aldın; daha iyisini yapabilir misin?`:"Günün meydan okuması seni bekliyor!";
+  const ds=EG.currentDayStreak(PROF);if(ds>=2)fun+=` Üst üste ${ds} gündür oynuyorsun.`;
+  $("#fun").textContent=fun;
+  $("#solo").onclick=()=>{ctx();soloSetup()};
+  $("#daily").onclick=dailyStart;
+  $("#multi").onclick=()=>{ctx();multiSetup()};
+  $("#online").onclick=()=>{ctx();onlineNamePrompt()};
+  $("#prof").onclick=showProfile;
+  $("#solo").focus();
+  live.textContent="Bilgi Yarışması. "+fun+" Bir mod seçin.";
+}
+
+function sartlarKabul(){try{return localStorage.getItem("by_sartlar")===SARTLAR_SURUM}catch(e){return false}}
+function onlineNamePrompt(){
+  destroyPeer();onlineState=null;stopWaiting();
+  const need=!sartlarKabul();
+  st.innerHTML=`
+  <h1>Online Oyna</h1>
+  <div class="set">
+    <label for="pname">Kullanıcı adınız</label>
+    <input id="pname" type="text" maxlength="20" value="${escapeHtml(myName)}" autocomplete="nickname" aria-describedby="pname-help" required>
+    <span class="help" id="pname-help">Rakibinizin sizi tanıması için bir ad girin. Oyuncu kimliğiniz: <code>${myPid()}</code> (itiraz ve bildirimlerde kullanılır).</span>
+  </div>
+  ${need?`<div class="set"><label class="radio" for="acc"><input type="checkbox" id="acc"><span><a href="kosullar.html" target="_blank" rel="noopener">Kullanım Şartları</a> ve <a href="gizlilik.html" target="_blank" rel="noopener">Gizlilik Politikası</a>'nı okudum, kabul ediyorum.</span></label></div>`:`<p class="help"><a href="kosullar.html">Kullanım Şartları</a> · <a href="gizlilik.html">Gizlilik Politikası</a></p>`}
+  <div class="menu">
+    <button class="btn" id="go">Devam</button>
+    <button class="btn ghost" id="back">Geri</button>
+  </div>
+  <p id="err" role="alert"></p>`;
+  $("#go").onclick=async()=>{
+    const v=($("#pname").value||"").trim();
+    if(!v){$("#err").textContent="Lütfen bir kullanıcı adı girin.";$("#pname").focus();return}
+    const acc=$("#acc");
+    if(acc&&!acc.checked){$("#err").textContent="Online oynamak için Kullanım Şartları'nı ve Gizlilik Politikası'nı kabul etmelisiniz.";acc.focus();return}
+    myName=v.slice(0,20);
+    if(acc){try{localStorage.setItem("by_sartlar",SARTLAR_SURUM)}catch(e){}}
+    $("#go").setAttribute("aria-disabled","true");$("#err").textContent="Kontrol ediliyor…";
+    await refreshBans();
+    if(iAmBanned()){showBanned();return}
+    onlineMenu();
+  };
+  $("#back").onclick=home;
+  $("#pname").focus();
+}
+
+/* ===== ONLINE MENÜ ===== */
+function onlineMenu(){
+  st.innerHTML=`
+  <h1>Online Oyna</h1>
+  <p class="muted">Kullanıcı adınız: <strong>${escapeHtml(myName)}</strong></p>
+  <p class="muted">10 soru. Rakip bulununca oda yöneticisi soru süresini seçer. Süre açıksa doğruyu hızlı bilen daha çok puan alır. Eşitlikte altın soru. Masaüstü uygulamasını kullananlarla da eşleşirsin.</p>
+  <div class="menu">
+    <button class="btn" id="rand">Rastgele Eşleş</button>
+    <button class="btn ghost" id="priv">Özel Oda (Arkadaşınla)</button>
+    <button class="btn ghost" id="back">Geri</button>
+  </div>
+  <div id="sub"></div>
+  <p id="err" role="alert"></p>`;
+  $("#rand").onclick=()=>guard(randomMatch);
+  $("#priv").onclick=privateRoomMenu;
+  $("#back").onclick=home;
+}
+function privateRoomMenu(){
+  $("#sub").innerHTML=`<div class="sub">
+    <button class="btn" id="mk">Oda Kur</button>
+    <div class="join-row">
+      <label for="jc">Oda kodu ile katıl</label>
+      <input id="jc" maxlength="6" inputmode="numeric" placeholder="Örn: 012345" autocomplete="off">
+      <button class="btn" id="join">Katıl</button>
+    </div>
+  </div>`;
+  $("#mk").onclick=()=>guard(()=>hostRoom());
+  $("#join").onclick=()=>{const c=($("#jc").value||"").replace(/\s+/g,"");if(!/^\d{6}$/.test(c)){$("#err").textContent="Kod 6 rakamdan oluşmalı.";return}guard(()=>joinRoom(c))};
+}
+
+/* ===== ÇEVRİMİÇİ TAŞIYICI: MQTT (WebSocket) =====
+   Python uygulamasıyla aynı kanalı ve aynı ileti biçimini kullanır, böylece
+   web ve masaüstü oyuncular birbiriyle eşleşir. Ek kütüphane gerekmez. */
+const MQ_PREFIX="bilgiarena-py/v1",MQ_LOBBY=MQ_PREFIX+"/lobby",MQ_CH=MQ_PREFIX+"/ch/";
+const MQ_BROKERS=[
+  {fam:0,url:"wss://broker.emqx.io:8084/mqtt"},
+  {fam:1,url:"wss://broker.hivemq.com:8884/mqtt"}
+];
+const MQ_T={seek:1600,offerRefresh:4000,joinRandom:6000,joinRoom:8000,ping:3000,lost:15000};
+const _mqEnc=new TextEncoder(),_mqDec=new TextDecoder();
+function mqHex(n){let s="";while(s.length<n)s+=Math.floor(Math.random()*16).toString(16);return s}
+function mqStr(s){const b=typeof s==="string"?_mqEnc.encode(s):s;const o=new Uint8Array(2+b.length);o[0]=b.length>>8;o[1]=b.length&255;o.set(b,2);return o}
+function mqCat(...a){let n=0;a.forEach(x=>n+=x.length);const o=new Uint8Array(n);let p=0;a.forEach(x=>{o.set(x,p);p+=x.length});return o}
+function mqLen(n){const o=[];do{let b=n%128;n=Math.floor(n/128);if(n)b|=128;o.push(b)}while(n);return Uint8Array.from(o)}
+function mqPkt(hdr,body){return mqCat(Uint8Array.of(hdr),mqLen(body.length),body)}
+const mqSleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+class MiniMqtt{
+  constructor(onMessage){
+    this.onMessage=onMessage;this.ws=null;this.topics=new Set();this.pid=0;this.closing=false;
+    this.buf=new Uint8Array(0);this.pinger=null;this.will=null;this.url=null;this.cid="by-"+mqHex(12);
+  }
+  async connect(url,will,timeout){
+    this.url=url;this.will=will;
+    await this._open(timeout);
+    this._afterOpen();
+  }
+  _open(timeout){
+    return new Promise((res,rej)=>{
+      let done=false;
+      const ws=new WebSocket(this.url,"mqtt");ws.binaryType="arraybuffer";
+      let t=null;
+      const fail=m=>{if(done)return;done=true;clearTimeout(t);try{ws.close()}catch(e){}rej(new Error(m))};
+      t=setTimeout(()=>fail("zaman aşımı"),timeout);
+      ws.onopen=()=>{try{ws.send(this._connectPkt())}catch(e){fail("gönderilemedi")}};
+      ws.onerror=()=>fail("bağlantı hatası");
+      ws.onclose=()=>{if(!done)fail("bağlantı kapandı");else if(this.ws===ws&&!this.closing)this._lost()};
+      ws.onmessage=ev=>{
+        if(done)return;
+        const d=new Uint8Array(ev.data);
+        if(d.length>=4&&(d[0]>>4)===2){
+          if(d[3]===0){
+            done=true;clearTimeout(t);this.ws=ws;this.buf=new Uint8Array(0);
+            ws.onmessage=e=>this._feed(new Uint8Array(e.data));
+            res();
+            if(d.length>4)this._feed(d.subarray(4));
+          }else fail("sunucu reddetti ("+d[3]+")");
+        }
+      };
+    });
+  }
+  _connectPkt(){
+    let flags=0x02,pl=mqStr(this.cid);
+    if(this.will){flags|=0x0C;pl=mqCat(pl,mqStr(this.will.topic),mqStr(this.will.payload))}
+    const body=mqCat(mqStr("MQTT"),Uint8Array.of(4,flags,0,60),pl);
+    return mqPkt(0x10,body);
+  }
+  _afterOpen(){
+    this.topics.forEach(t=>this._sendSub(t));
+    clearInterval(this.pinger);
+    this.pinger=setInterval(()=>this._send(Uint8Array.of(0xC0,0)),20000);
+  }
+  _lost(){
+    clearInterval(this.pinger);this.ws=null;
+    (async()=>{
+      while(!this.closing){
+        await mqSleep(2000);
+        if(this.closing)return;
+        try{await this._open(6000);this._afterOpen();return}catch(e){}
+      }
+    })();
+  }
+  _send(u8){try{if(this.ws&&this.ws.readyState===1){this.ws.send(u8);return true}}catch(e){}return false}
+  _pidn(){this.pid=this.pid%65535+1;return Uint8Array.of(this.pid>>8,this.pid&255)}
+  _sendSub(t){this._send(mqPkt(0x82,mqCat(this._pidn(),mqStr(t),Uint8Array.of(1))))}
+  subscribe(t){this.topics.add(t);this._sendSub(t)}
+  unsubscribe(t){this.topics.delete(t);this._send(mqPkt(0xA2,mqCat(this._pidn(),mqStr(t))))}
+  publish(topic,text,retain){
+    this._send(mqPkt(0x32|(retain?1:0),mqCat(mqStr(topic),this._pidn(),_mqEnc.encode(text||""))));
+  }
+  _feed(bytes){
+    this.buf=mqCat(this.buf,bytes);
+    for(;;){
+      const b=this.buf;if(b.length<2)return;
+      let mult=1,len=0,i=1,ok=false;
+      for(;i<=4&&i<b.length;i++){
+        const d=b[i];len+=(d&127)*mult;mult*=128;
+        if(!(d&128)){ok=true;i++;break}
+      }
+      if(!ok||b.length<i+len)return;
+      const hdr=b[0],body=b.subarray(i,i+len);
+      this.buf=b.subarray(i+len);
+      try{this._handle(hdr,body)}catch(e){}
+    }
+  }
+  _handle(hdr,body){
+    if((hdr>>4)!==3)return;
+    const qos=(hdr>>1)&3,retain=!!(hdr&1);
+    const tl=(body[0]<<8)|body[1];
+    const topic=_mqDec.decode(body.subarray(2,2+tl));
+    let idx=2+tl;
+    if(qos){
+      const pid=body.subarray(idx,idx+2);idx+=2;
+      if(qos===1)this._send(Uint8Array.of(0x40,2,pid[0],pid[1]));
+    }
+    this.onMessage(topic,_mqDec.decode(body.subarray(idx)),retain);
+  }
+  disconnect(){
+    this.closing=true;clearInterval(this.pinger);
+    this._send(Uint8Array.of(0xE0,0));
+    const w=this.ws;this.ws=null;
+    setTimeout(()=>{try{w&&w.close()}catch(e){}},300);
+  }
+}
+
+/* Eşleşme, el sıkışma, kalp atışı ve mesajlaşma (online.py içindeki Session ile aynı iş akışı).
+   emit(olay, veri): status | room_ready | error | matched | msg | left */
+class MqSession{
+  constructor(name,emit){
+    this.name=(name||"Oyuncu").slice(0,20);this.emit=emit;this.id=mqHex(10);
+    this.pid="";this.banned=null;this.oppPid="";
+    this.mq=null;this.state="idle";this.random=false;this.channel=null;this.opp=null;
+    this.oppName="Rakip";this.isHost=false;this.seq=0;this.seen={};this.lastSeen=0;this.nextPing=0;
+    this.offer=null;this.seekDeadline=0;this.helloDeadline=0;this.nextOffer=0;
+    this.joinFromLobby=false;this.leftSent=false;this.closed=false;this.fam=null;this.timer=null;
+  }
+  get matched(){return this.state==="matched"}
+  _isBanned(p){return !!(p&&this.banned&&this.banned.has(String(p)))}
+  startRandom(){this.random=true;this._boot(()=>this._bootRandom())}
+  hostRoom(){this.random=false;this._boot(()=>this._bootRoom())}
+  joinRoom(code){this.random=false;this._boot(()=>this._bootJoin(code))}
+  send(d){
+    if(this.state!=="matched"||!this.channel)return false;
+    this._pub(this.channel,Object.assign({},d,{to:this.opp}));return true;
+  }
+  close(){
+    if(this.closed)return;
+    this.closed=true;
+    const prev=this.state,mq=this.mq;
+    clearInterval(this.timer);
+    if(mq){
+      try{
+        if(prev==="matched"&&this.channel)this._pub(this.channel,{t:"bye",to:this.opp});
+        if((prev==="hosting"||prev==="seeking")&&this.random)mq.publish(MQ_LOBBY,"",true);
+      }catch(e){}
+    }
+    this.state="closed";
+    if(mq)mq.disconnect();
+  }
+  destroy(){this.close()}
+
+  _boot(fn){
+    fn().catch(e=>{
+      if(this.closed)return;
+      this.emit("error",{text:"Çevrimiçi sunucuya bağlanılamadı. İnternet bağlantını kontrol edip tekrar dene. ("+(e&&e.message||e)+")"});
+    });
+  }
+  async _connect(pref){
+    this.emit("status",{text:"Sunucuya bağlanılıyor…"});
+    let list=MQ_BROKERS.filter(b=>pref!=null&&b.fam===pref);
+    if(!list.length)list=MQ_BROKERS;
+    const will={topic:MQ_PREFIX+"/presence/"+this.id,payload:JSON.stringify({t:"gone",from:this.id})};
+    let last="";
+    for(let i=0;i<list.length;i++){
+      if(this.closed)return false;
+      if(list.length>1)this.emit("status",{text:"Sunucuya bağlanılıyor ("+(i+1)+"/"+list.length+")…"});
+      const mq=new MiniMqtt((t,p,r)=>this._onMessage(t,p,r));
+      try{
+        await mq.connect(list[i].url,will,5000);
+        if(this.closed){mq.disconnect();return false}
+        this.mq=mq;this.fam=list[i].fam;
+        this.timer=setInterval(()=>this._tick(),250);
+        return true;
+      }catch(e){last=list[i].url.split("/")[2]+": "+(e&&e.message||e)}
+    }
+    throw new Error(last||"bağlanılamadı");
+  }
+  async _bootRandom(){
+    if(!(await this._connect(null)))return;
+    this.state="seeking";this.seekDeadline=Date.now()+MQ_T.seek;
+    this.mq.subscribe(MQ_LOBBY);
+    this.emit("status",{text:"Rakip aranıyor… Havuzda bekleyen biri varsa eşleşeceksiniz."});
+  }
+  async _bootRoom(){
+    if(!(await this._connect(null)))return;
+    const code=String(this.fam==null?9:this.fam)+String(Math.floor(Math.random()*100000)).padStart(5,"0");
+    this.channel=MQ_CH+"room-"+code;this.state="hosting";this.isHost=true;
+    this.mq.subscribe(this.channel);
+    this.emit("room_ready",{code});
+  }
+  async _bootJoin(code){
+    code=String(code||"").trim();
+    const pref=/^\d/.test(code)?parseInt(code[0],10):null;
+    if(!(await this._connect(pref)))return;
+    this.channel=MQ_CH+"room-"+code;this.joinFromLobby=false;
+    this.mq.subscribe(this.channel);
+    this._startJoining(null,MQ_T.joinRoom);
+    this.emit("status",{text:"Odaya bağlanılıyor…"});
+  }
+  _startJoining(hostId,wait){
+    this.state="joining";this.helloDeadline=Date.now()+wait;
+    this._pub(this.channel,{t:"join",name:this.name,pid:this.pid,to:hostId});
+  }
+  _pub(topic,d,retain){
+    const o=Object.assign({},d,{from:this.id,n:this.seq++});
+    this.mq.publish(topic,JSON.stringify(o),!!retain);
+  }
+
+  _onMessage(topic,text,retained){
+    if(!text||this.closed)return;
+    let d;try{d=JSON.parse(text)}catch(e){return}
+    if(!d||typeof d!=="object"||Array.isArray(d))return;
+    if(topic===MQ_LOBBY)this._onLobby(d);
+    else if(topic.startsWith(MQ_PREFIX+"/presence/")){
+      if(this.state==="matched"&&topic.endsWith("/"+this.opp))this._oppLeft();
+    }else if(topic===this.channel)this._onChannel(d);
+  }
+  _onLobby(d){
+    if(d.t!=="wait"||d.id===this.id)return;
+    if(typeof d.ch!=="string"||typeof d.id!=="string"||!d.ch.startsWith(MQ_CH))return;
+    if(this._isBanned(d.pid))return;
+    if(this.state==="seeking")this.offer=d;
+    else if(this.state==="hosting"&&this.random&&d.id<this.id)this._switchTo(d);
+  }
+  _switchTo(offer){
+    const old=this.channel;
+    this.channel=offer.ch;this.isHost=false;this.joinFromLobby=true;
+    this.mq.subscribe(this.channel);
+    if(old&&old!==this.channel)this.mq.unsubscribe(old);
+    this._startJoining(offer.id,MQ_T.joinRandom);
+    this.emit("status",{text:"Rakip bulundu, bağlanılıyor…"});
+  }
+  _becomeHostRandom(){
+    this.channel=MQ_CH+"rnd-"+this.id;this.isHost=true;this.state="hosting";
+    this.mq.subscribe(this.channel);this._publishOffer();
+    this.emit("status",{text:"Rakip aranıyor… Biri katılınca oyun başlayacak."});
+  }
+  _publishOffer(){
+    this.nextOffer=Date.now()+MQ_T.offerRefresh;
+    this._pub(MQ_LOBBY,{t:"wait",id:this.id,ch:this.channel,name:this.name,pid:this.pid},true);
+  }
+  _onChannel(d){
+    const sender=d.from;
+    if(typeof sender!=="string"||sender===this.id)return;
+    if(Number.isInteger(d.n)){
+      const seen=this.seen[sender]||(this.seen[sender]=[]);
+      if(seen.includes(d.n))return;
+      seen.push(d.n);if(seen.length>300)seen.splice(0,seen.length-300);
+    }
+    const t=d.t;
+    if(this.state==="hosting"&&t==="join"){if(!this._isBanned(d.pid))this._acceptGuest(sender,d)}
+    else if(this.state==="joining"&&t==="hello"&&d.to===this.id){
+      if(this._isBanned(d.pid)){this.state="closed";this.emit("error",{text:"Bu oyuncu yasaklı olduğu için eşleşme iptal edildi."})}
+      else this._acceptHost(sender,d);
+    }
+    else if(this.state==="joining"&&t==="full"&&d.to===this.id){this.state="closed";this.emit("error",{text:"Oda dolu."})}
+    else if(this.state==="matched"){
+      if(t==="join"&&sender!==this.opp)this._pub(this.channel,{t:"full",to:sender});
+      else if(sender===this.opp){
+        this.lastSeen=Date.now();
+        if(t==="bye")this._oppLeft();
+        else if(t==="ping"){}
+        else if(t==="join")this._pub(this.channel,{t:"hello",to:sender,name:this.name,pid:this.pid});
+        else if(d.to==null||d.to===this.id)this.emit("msg",{data:d});
+      }
+    }
+  }
+  _acceptGuest(sender,d){
+    const target=d.to;
+    if(target!=null&&target!==this.id)return;
+    this.opp=sender;this.oppName=String(d.name||"Rakip").slice(0,20);this.oppPid=/^[a-f0-9]{16}$/.test(d.pid||"")?d.pid:"";
+    this._pub(this.channel,{t:"hello",to:sender,name:this.name,pid:this.pid});
+    if(this.random){this.mq.publish(MQ_LOBBY,"",true);this.mq.unsubscribe(MQ_LOBBY)}
+    this._matched("host");
+  }
+  _acceptHost(sender,d){
+    this.opp=sender;this.oppName=String(d.name||"Rakip").slice(0,20);this.oppPid=/^[a-f0-9]{16}$/.test(d.pid||"")?d.pid:"";
+    if(this.joinFromLobby)this.mq.unsubscribe(MQ_LOBBY);
+    this._matched("guest");
+  }
+  _matched(role){
+    this.state="matched";this.isHost=role==="host";
+    this.lastSeen=Date.now();this.nextPing=this.lastSeen+MQ_T.ping;
+    this.mq.subscribe(MQ_PREFIX+"/presence/"+this.opp);
+    this.emit("matched",{role,oppName:this.oppName,oppPid:this.oppPid});
+  }
+  _oppLeft(){
+    if(this.leftSent)return;
+    this.leftSent=true;this.emit("left",{});
+  }
+  _tick(){
+    if(this.closed)return;
+    const now=Date.now(),st=this.state;
+    try{
+      if(st==="seeking"&&now>=this.seekDeadline){
+        if(this.offer){
+          const o=this.offer;this.offer=null;
+          this.joinFromLobby=true;this.channel=o.ch;this.isHost=false;
+          this.mq.subscribe(this.channel);
+          this._startJoining(o.id,MQ_T.joinRandom);
+          this.emit("status",{text:"Rakip bulundu, bağlanılıyor…"});
+        }else this._becomeHostRandom();
+      }else if(st==="hosting"&&this.random&&now>=this.nextOffer)this._publishOffer();
+      else if(st==="joining"&&now>=this.helloDeadline){
+        if(this.joinFromLobby){
+          this.mq.publish(MQ_LOBBY,"",true);
+          const old=this.channel;this.joinFromLobby=false;
+          this._becomeHostRandom();
+          if(old&&old!==this.channel)this.mq.unsubscribe(old);
+        }else{
+          this.state="closed";this.emit("error",{text:"Oda bulunamadı veya kod yanlış."});
+        }
+      }else if(st==="matched"){
+        if(now>=this.nextPing){this.nextPing=now+MQ_T.ping;this._pub(this.channel,{t:"ping",to:this.opp})}
+        if(now-this.lastSeen>MQ_T.lost)this._oppLeft();
+      }
+    }catch(e){}
+  }
+}
+
+/* Sekme kapanırken oturumu düzgün kapat (rakibe haber gider, bekleyen ilan temizlenir) */
+addEventListener("pagehide",()=>{try{if(peer&&peer.close)peer.close()}catch(e){}});
+
+let peer=null,conn=null,isHost=false,waitingTimer=null,waitingNodes=[],onlineState=null,oppName="Rakip";
+let _disconnectGuard=false;
+
+function stopWaiting(){
+  if(waitingTimer){clearInterval(waitingTimer);waitingTimer=null}
+  waitingNodes.forEach(n=>{try{n.stop?n.stop():n.disconnect&&n.disconnect()}catch(e){}});
+  waitingNodes=[];
+}
+
+/* Bağlanma sesi: rakip aranırken ya da oda beklenirken yaklaşık 2 saniyede bir
+   tekrarlanan yumuşak, yükselen iki notalı "ding-dong". Müzik değil, arama tonu gibi. */
+function waitingMusic(){
+  stopWaiting();
+  const c=ctx(); if(!c||!on) return;
+  const mg=masterGain(); if(!mg) return;
+  const master=c.createGain(); master.gain.value=0.9; master.connect(mg);
+  waitingNodes.push(master);
+  function bell(f,t,v){
+    [[f,v],[f*2,v*0.25]].forEach(([fr,vol])=>{
+      const o=c.createOscillator(),g=c.createGain();
+      o.type="sine";o.frequency.value=fr;
+      g.gain.setValueAtTime(0.0001,t);g.gain.linearRampToValueAtTime(vol,t+0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.55);
+      o.connect(g).connect(master);o.start(t);o.stop(t+0.6);
+    });
+  }
+  const ping=()=>{
+    const t=c.currentTime+0.02;
+    bell(659.25,t,0.32);          // Mi
+    bell(987.77,t+0.2,0.32);      // Si (yükselen)
+    bell(987.77,t+0.55,0.1);      // hafif yankı
+  };
+  ping();
+  waitingTimer=setInterval(ping,2200);
+}
+
+function showWaiting(title,sub){
+  st.innerHTML=`<div class="waiting" aria-busy="true"><div class="pulse" aria-hidden="true"></div>
+  <h2>${title}</h2><p class="muted">${sub||""}</p>
+  <button class="btn ghost" id="cancel">İptal</button></div>`;
+  $("#cancel").onclick=()=>{stopWaiting();destroyPeer();home()};
+  waitingMusic();
+  live.textContent=title+" "+(sub||"");
+}
+function destroyPeer(){
+  clearOnlineTimers(onlineState);
+  _disconnectGuard=true;inSetup=false;postGame=false;myRematch=false;oppRematch=false;
+  try{if(conn)conn.close();}catch(e){}
+  try{if(peer)peer.destroy();}catch(e){}
+  conn=null;peer=null;isHost=false;
+  setTimeout(()=>{_disconnectGuard=false;},800);
+}
+/* Bağlantı kurulumu */
+let inSetup=false;
+function hostSetup(){
+  if(!conn||!conn.open)return;
+  inSetup=true;
+  conn.send({t:"setup"});
+  S.found();
+  chatToggle(true);
+  st.innerHTML=`<h1>Oyun ayarı</h1>
+  <p class="muted">Rakip: <strong>${escapeHtml(oppName)}</strong>. Oda yöneticisi sensin.</p>
+  <fieldset class="choice"><legend>Soru süresi</legend>
+    <div class="radios">${[20,30,45,0].map(v=>`<label class="radio"><input type="radio" name="osure" value="${v}"${v===myQPref?" checked":""}><span>${v?v+" saniye":"Süresiz"}</span></label>`).join("")}</div>
+    <span class="help">Süre açıksa doğruyu ne kadar hızlı bilirsen o kadar çok puan alırsınız. Süresizde her doğru cevap ${O_BASE} puan, tur geçişleri düğmeyle yapılır.</span>
+  </fieldset>
+  <div class="actions"><button class="btn" id="startGame">Oyunu başlat</button></div>`;
+  $("#startGame").onclick=()=>{
+    const r=st.querySelector('input[name="osure"]:checked');
+    myQPref=r?+r.value:20;
+    try{localStorage.setItem("by_osure",String(myQPref))}catch(e){}
+    hostBeginGame();
+  };
+  const c=st.querySelector('input[name="osure"]:checked');if(c)c.focus();
+  live.textContent=`Rakip bulundu: ${oppName}. Oda yöneticisi sensin. Soru süresini seç ve oyunu başlat.`;
+}
+function guestWait(){
+  inSetup=true;
+  chatToggle(true);
+  st.innerHTML=`<div class="waiting" aria-busy="true"><div class="pulse" aria-hidden="true"></div>
+  <h2>${escapeHtml(oppName)} oyunu ayarlıyor</h2><p class="muted">Oda yöneticisi soru süresini seçiyor. Oyun birazdan başlayacak.</p></div>`;
+  live.textContent=`Rakip bulundu: ${oppName}. Oda yöneticisi soru süresini seçiyor, oyun birazdan başlayacak.`;
+}
+function hostBeginGame(){
+  inSetup=false;
+  let qs;
+  try { qs = buildQuestions(10); }
+  catch(e){ alert("Sorular yüklenemedi: "+e.message); destroyPeer(); home(); return; }
+  const qt=myQPref;
+  onlineState = newOnlineState(qs,qt);
+  if (conn && conn.open) { conn.send({ t: "start", qs, qtime: qt }); beginOnline(); }
+}
+
+/* Oyun sonrası: bağlantı açık kalır, rövanş istenebilir */
+let postGame=false,myRematch=false,oppRematch=false;
+function setRmStatus(t){const e=document.getElementById("rmStatus");if(e)e.textContent=t}
+function tryRematch(){
+  if(myRematch&&oppRematch){myRematch=false;oppRematch=false;if(isHost)setTimeout(hostSetup,300)}
+}
+function requestRematch(){
+  if(!conn||!conn.open||myRematch)return;
+  myRematch=true;conn.send({t:"rematch"});
+  const b=document.getElementById("again");if(b)b.setAttribute("aria-disabled","true");
+  setRmStatus(oppRematch?"Rövanş başlıyor…":"Rakibin onayı bekleniyor…");
+  addChatSys("Rövanş istedin.");
+  tryRematch();
+}
+function leaveToMenu(){chatToggle(false);home()}
+function leaveToNewMatch(){destroyPeer();chatToggle(false);onlineMenu()}
+
+function setupConn(c, hostSide){
+  conn = c;
+  let opened = false;
+
+  const handleOpen = () => {
+    if (opened) return;
+    opened = true;
+    stopWaiting();
+    _disconnectGuard = false;
+    try { c.send({ t: "hello", name: myName }); } catch(e) {}
+
+    if (hostSide) {
+      setTimeout(() => { if (conn === c && c.open) hostSetup(); }, 500);
+    } else {
+      S.found();
+    }
+  };
+
+  if(c.oppName)oppName=c.oppName;
+  c.on("data", d => onData(d));
+  c.on("close", () => {
+    stopWaiting();
+    if (_disconnectGuard) return;
+    if (inSetup) { inSetup=false; S.leave(); showDisconnect(); }
+    else if (onlineState) { S.leave(); showDisconnect(); }
+    else if (postGame) {
+      S.leave();addChatSys("Rakip ayrıldı.");
+      const b=document.getElementById("again");if(b)b.setAttribute("aria-disabled","true");
+      setRmStatus("Rakip ayrıldı. Yeni rakip bulabilir ya da ana menüye dönebilirsin.");
+    }
+  });
+  c.on("error", (err) => {
+    console.error("Connection error:", err);
+    if (_disconnectGuard) return;
+    if (inSetup) { inSetup=false; S.leave(); showDisconnect(); }
+    else if (onlineState) { S.leave(); showDisconnect(); }
+    else if (postGame) { addChatSys("Bağlantı hatası oluştu."); }
+    else { stopWaiting(); destroyPeer(); onlineMenu(); const el = document.getElementById("err"); if (el) el.textContent = "Bağlantı hatası oluştu."; }
+  });
+
+  if (c.open) handleOpen();
+  else c.on("open", handleOpen);
+}
+
+/* MQTT oturumunu başlatır, olayları PeerJS tarzı bir conn nesnesine bağlar */
+function mqConn(s){
+  const h={data:[],close:[],error:[],open:[]};
+  return {
+    get open(){return s.matched},
+    get peer(){return s.opp},
+    send(o){return s.send(o)},
+    close(){try{s.close()}catch(e){}},
+    on(ev,cb){(h[ev]||(h[ev]=[])).push(cb)},
+    _emit(ev,a){(h[ev]||[]).slice().forEach(cb=>{try{cb(a)}catch(e){console.error(e)}})}
+  };
+}
+function mqFail(text){
+  stopWaiting();destroyPeer();onlineMenu();
+  const el=document.getElementById("err");if(el)el.textContent=text;
+  live.textContent=text;
+}
+function mqNewSession(){
+  if(peer){try{peer.destroy()}catch(e){}peer=null;conn=null}
+  const s=new MqSession(myName,(ev,d)=>{
+    if(peer!==s)return;
+    if(ev==="status"){
+      const p=st.querySelector(".waiting .muted");if(p)p.textContent=d.text;
+      live.textContent=d.text;
+    }else if(ev==="room_ready")mqRoomReady(d.code);
+    else if(ev==="error")mqFail(d.text);
+    else if(ev==="matched"){
+      const c=mqConn(s);isHost=(d.role==="host");oppName=d.oppName||"Rakip";c.oppName=oppName;oppPid=d.oppPid||"";
+      setupConn(c,isHost);
+    }else if(ev==="msg"){if(conn&&conn._emit)conn._emit("data",d.data)}
+    else if(ev==="left"){if(conn&&conn._emit)conn._emit("close")}
+  });
+  s.pid=myPid();s.banned=BANNED;
+  peer=s;return s;
+}
+
+function randomMatch(){
+  showWaiting("Rakip aranıyor…","Havuzda bekleyen biri varsa eşleşeceksiniz.");
+  mqNewSession().startRandom();
+}
+
+function hostRoom(){
+  showWaiting("Oda kuruluyor…","Sunucuya bağlanılıyor…");
+  mqNewSession().hostRoom();
+}
+function mqRoomReady(code){
+  stopWaiting();
+  st.innerHTML=`<div class="waiting" aria-busy="true"><div class="pulse" aria-hidden="true"></div>
+  <h2>Oda Hazır</h2><p class="muted">Arkadaşınıza kodu gönderin:</p>
+  <div class="code">${escapeHtml(code)}</div>
+  <button class="btn ghost" id="copy">Kodu Kopyala</button>
+  <p class="muted">Rakip bağlanınca oyun otomatik başlar. Masaüstü uygulamasını kullananlar da bu kodla katılabilir.</p>
+  <button class="btn ghost" id="cancel">İptal</button></div>`;
+  $("#copy").onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(code);live.textContent="Kod kopyalandı: "+code};
+  $("#cancel").onclick=()=>{destroyPeer();onlineMenu()};
+  waitingMusic();live.textContent="Oda hazır. Kod: "+code.split("").join(" ");
+}
+
+function joinRoom(code){
+  showWaiting("Odaya bağlanılıyor…","Kod: "+code);
+  mqNewSession().joinRoom(code);
+}
+
+function onData(d){
+  if(!d||!d.t)return;
+  if(d.t==="hello"){oppName=d.name||"Rakip";updatePlayers();return}
+  if(d.t==="chat"){addChat(d.name||oppName,d.text,false);S.chatRecv();return}
+  if(d.t==="rematch"){
+    oppRematch=true;
+    if(postGame){
+      addChatSys("Rakip rövanş istiyor.");
+      if(!myRematch)setRmStatus("Rakip rövanş istiyor. Kabul etmek için Rövanş düğmesine bas.");
+    }
+    tryRematch();return;
+  }
+  if(d.t==="setup"&&!isHost){
+    if(postGame)S.found();
+    guestWait();return;
+  }
+  if(d.t==="start"&&!isHost){
+    if(!d.qs||!d.qs.length)return;
+    onlineState=newOnlineState(d.qs,[0,20,30,45].includes(d.qtime)?d.qtime:20);
+    beginOnline();
+    return;
+  }
+  if(d.t==="ready"){
+    const o=onlineState;if(!o||!Number.isInteger(d.i))return;
+    o.oppReady[d.i]=true;
+    const note=document.getElementById("nnote");
+    if(note&&o.phase==="reveal"&&!o.myReady[d.i]&&d.i===o.round+1)note.textContent="Rakip hazır.";
+    tryAdvance();return;
+  }
+  if(d.t==="ans"){
+    const o=onlineState;if(!o||!Number.isInteger(d.i))return;
+    const k=Number.isInteger(d.k)&&d.k>=-1&&d.k<4?d.k:-1;
+    const ms=Math.min(o.qtime*1000,Math.max(0,+d.ms||0));
+    o.opp[d.i]={k,ms};
+    if(o.round===d.i&&o.phase==="q"){
+      if(o.my[d.i])revealRound(d.i);
+      else{setStat("Rakip cevapladı.");live.textContent="Rakip cevapladı."}
+    }
+    return;
+  }
+  if(d.t==="extra"){
+    const o=onlineState;if(!o||!d.q||!Number.isInteger(d.i))return;
+    o.qs[d.i]=d.q;
+    tryAdvance();return;
+  }
+}
+
+function showDisconnect(){
+  clearOnlineTimers(onlineState);onlineState=null;
+  chatToggle(false);destroyPeer();
+  st.innerHTML=`<div class="result"><h2>Rakip ayrıldı</h2><p class="muted">Bağlantı sonlandı.</p>
+  <div class="actions"><button class="btn" id="again">Tekrar Oyna</button><button class="btn ghost" id="menu">Ana Menü</button></div></div>`;
+  $("#again").onclick=onlineMenu;$("#menu").onclick=home;
+  live.textContent="Rakip ayrıldı.";
+}
+
+/* ===== ONLINE OYUN: eşzamanlı düello ===== */
+/* İki oyuncu aynı soruyu aynı anda görür. Her soruda süre vardır; doğru cevap puan,
+   hızlı cevap bonus puan getirir. Cevaplar iki taraf da verince birlikte açılır.
+   10 soru sonunda puan eşitse altın soru gelir. */
+const O_ROUNDS=10,O_QTIME=20,O_BASE=100,O_BONUS=100,O_REVEAL=12;
+
+function newOnlineState(qs,qt){
+  return {qs,round:-1,phase:"vs",locked:false,qtime:qt,
+    my:{},opp:{},myPts:0,oppPts:0,myCor:0,oppCor:0,hist:[],
+    myReady:{},oppReady:{},finished:false,over:false,tie:false,
+    tm:null,vsTm:null,rv:null,deadline:0,qStart:0};
+}
+function clearOnlineTimers(o){
+  if(!o)return;
+  if(o.tm){clearInterval(o.tm);o.tm=null}
+  if(o.vsTm){clearTimeout(o.vsTm);o.vsTm=null}
+  if(o.rv){clearInterval(o.rv);o.rv=null}
+}
+function roundPoints(ok,ms,qtime){
+  if(!ok)return 0;
+  if(!qtime)return O_BASE;
+  return O_BASE+Math.round(O_BONUS*Math.max(0,1-ms/(qtime*1000)));
+}
+function onlineTimeText(){
+  const o=onlineState;if(!o)return"";
+  if(!o.qtime)return "Süre sınırı kapalı.";
+  if(o.phase==="q"&&!o.locked&&o.tm)return "Kalan süre: "+Math.max(0,Math.ceil((o.deadline-Date.now())/1000))+" saniye.";
+  if(o.phase==="q")return "Cevabını verdin, rakip bekleniyor.";
+  return "Bu soru için süre durdu.";
+}
+
+function beginOnline(){
+  const o=onlineState;if(!o)return;
+  inSetup=false;postGame=false;myRematch=false;oppRematch=false;
+  chatToggle(true);addChatSys("Oyun başladı. İyi şanslar!");
+  showVs();
+}
+function showVs(){
+  const o=onlineState;if(!o)return;
+  S.start();
+  let n=3;
+  const draw=()=>{
+    st.innerHTML=`<div class="vs-screen">
+      <div class="vs"><span class="vs-p me">${escapeHtml(myName)}</span><span class="vs-x" aria-hidden="true">VS</span><span class="vs-p">${escapeHtml(oppName)}</span></div>
+      <p class="muted lead">${isHost?"Oda yöneticisi sensin. ":oppName+" oda yöneticisi. "}${o.qtime?`${O_ROUNDS} soru var. Her soru için ${o.qtime} saniyen var. Doğruyu ne kadar hızlı bilirsen o kadar çok puan alırsın.`:`${O_ROUNDS} soru var. Süre sınırı yok. Her doğru cevap ${O_BASE} puan.`} Kısayollar: 1 ile 4 arası şık seçer, C soruyu okur, T süreyi, P puanı söyler.</p>
+      <p class="vs-count" id="vsCount" aria-hidden="true">${n}</p></div>`;
+  };
+  draw();
+  live.textContent=(isHost?"Oda yöneticisi sensin. ":oppName+" oda yöneticisi. ")+(o.qtime?`Rakibin ${oppName}. ${O_ROUNDS} soru, soru başına ${o.qtime} saniye. Doğruyu hızlı bilen daha çok puan alır. Başlıyor.`:`Rakibin ${oppName}. ${O_ROUNDS} soru, süre sınırı yok. Her doğru cevap ${O_BASE} puan. Başlıyor.`);
+  const step=()=>{
+    if(onlineState!==o||o.finished)return;
+    n--;
+    if(n>0){S.tick();draw();o.vsTm=setTimeout(step,1000)}
+    else{
+      const c=document.getElementById("vsCount");if(c){c.textContent="…";}
+      sendReady(0);
+    }
+  };
+  o.vsTm=setTimeout(step,1000);
+}
+
+/* Her iki taraf "hazır" deyince tur başlar (eşzamanlama) */
+function sendReady(n){
+  const o=onlineState;if(!o)return;
+  o.myReady[n]=true;
+  conn&&conn.open&&conn.send({t:"ready",i:n});
+  tryAdvance();
+}
+function tryAdvance(){
+  const o=onlineState;if(!o||o.finished)return;
+  const n=o.round+1;
+  if(o.phase!=="q"&&o.myReady[n]&&o.oppReady[n]&&o.qs[n])startRound(n);
+}
+
+function updatePlayers(){
+  const el=document.getElementById("players"),o=onlineState;
+  if(!el||!o)return;
+  el.innerHTML=`<span class="me">${escapeHtml(myName)}: ${o.myPts}</span><span>${escapeHtml(oppName)}: ${o.oppPts}</span>`;
+}
+function setStat(t){const e=document.getElementById("stat");if(e)e.textContent=t}
+
+function startRound(n){
+  const o=onlineState;if(!o)return;
+  clearOnlineTimers(o);
+  o.round=n;o.phase="q";o.locked=false;
+  const q=o.qs[n],extra=n>=O_ROUNDS;
+  if(extra)S.extra();else if(n>0)S.next();
+  const ladder=Array.from({length:O_ROUNDS},(_,k)=>`<li class="${k<n?(o.hist[k]&&o.hist[k].ok?"good":"bad"):k===n?"now":""}"></li>`).join("");
+  st.innerHTML=`${extra?`<div class="turnbar">Altın soru: eşitlik bozulana kadar</div>`:`<ol class="ladder" aria-hidden="true">${ladder}</ol>`}
+  <div class="players" id="players" role="group" aria-label="Puan durumu"></div>
+  <div class="meta"><span>${extra?"Altın soru":`Soru ${n+1} / ${O_ROUNDS}`}</span><span>${escapeHtml(q.cat)}</span></div>
+  ${o.qtime?`<div class="timer" id="timer" aria-hidden="true"><span class="timer-n" id="timerN">${o.qtime}</span><div class="timer-bar"><i id="timerBar"></i></div></div>`:""}
+  <h2 class="q" id="qt" tabindex="-1">${escapeHtml(q.q)}</h2>
+  <div class="opts" role="group" aria-labelledby="qt">${q.o.map((x,k)=>`<button class="opt" data-k="${k}"><b>${L[k]}</b><span>${escapeHtml(x.t)}</span></button>`).join("")}</div>
+  <div class="fb" id="fb"><p class="stat" id="stat">${o.opp[n]?"Rakip cevapladı.":"Rakip düşünüyor…"}</p></div>`;
+  updatePlayers();
+  st.querySelectorAll(".opt").forEach(b=>b.onclick=()=>onlinePick(+b.dataset.k));
+  playMode(true);
+  $("#qt").focus();
+  const nEl=$("#timerN"),bar=$("#timerBar"),box=$("#timer");
+  o.qStart=Date.now();o.deadline=o.qStart+o.qtime*1000;
+  if(!o.qtime)return;
+  let lastTick=-1,warned=false;
+  o.tm=setInterval(()=>{
+    if(onlineState!==o||o.phase!=="q"||o.locked){clearOnlineTimers(o);return}
+    const ms=Math.max(0,o.deadline-Date.now()),sec=Math.ceil(ms/1000);
+    if(nEl)nEl.textContent=sec;
+    if(bar)bar.style.width=(ms/(o.qtime*1000)*100)+"%";
+    if(box)box.classList.toggle("low",sec<=5);
+    if(sec<=5&&sec>0&&sec!==lastTick){lastTick=sec;S.tick()}
+    if(sec===10&&!warned&&o.qtime>10){warned=true;live.textContent="10 saniye kaldı."}
+    if(ms<=0)lockAnswer(-1);
+  },200);
+}
+
+function onlinePick(k){
+  const o=onlineState;
+  if(!o||o.phase!=="q"||o.locked)return;
+  lockAnswer(k);
+}
+function lockAnswer(k){
+  const o=onlineState;
+  if(!o||o.phase!=="q"||o.locked)return;
+  o.locked=true;
+  const i=o.round;
+  if(o.tm){clearInterval(o.tm);o.tm=null}
+  const ms=k<0?o.qtime*1000:Math.min(o.qtime*1000,Date.now()-o.qStart);
+  o.my[i]={k,ms};
+  conn&&conn.open&&conn.send({t:"ans",i,k,ms});
+  const tn=document.getElementById("timerN"),tb=document.getElementById("timerBar");
+  if(tn)tn.textContent=Math.max(0,Math.ceil((o.deadline-Date.now())/1000));
+  if(tb)tb.style.width=(Math.max(0,o.deadline-Date.now())/(o.qtime*1000)*100)+"%";
+  const b=st.querySelectorAll(".opt");
+  b.forEach(x=>x.setAttribute("aria-disabled","true"));
+  if(k>=0){b[k].classList.add("lock");S.pick()}
+  const waitTxt=o.opp[i]?"":" Rakip bekleniyor.";
+  setStat(k>=0?"Cevabın kilitlendi."+waitTxt:"Süre doldu."+waitTxt);
+  live.textContent=(k>=0?`${L[k]} şıkkı kilitlendi.`:"Süre doldu.")+waitTxt;
+  if(o.opp[i])revealRound(i);
+}
+
+function revealRound(i){
+  const o=onlineState;
+  if(!o||o.phase!=="q"||o.round!==i||!o.my[i]||!o.opp[i])return;
+  o.phase="reveal";
+  S.beat(2);
+  setTimeout(()=>{if(onlineState===o&&o.round===i)renderReveal(i)},1100);
+}
+function renderReveal(i){
+  const o=onlineState;if(!o)return;
+  const q=o.qs[i],right=q.o.findIndex(x=>x.c);
+  const me=o.my[i],op=o.opp[i];
+  const meOk=me.k===right,opOk=op.k===right;
+  const meP=roundPoints(meOk,me.ms,o.qtime),opP=roundPoints(opOk,op.ms,o.qtime);
+  o.myPts+=meP;o.oppPts+=opP;
+  if(meOk)o.myCor++;if(opOk)o.oppCor++;
+  o.hist[i]={ok:meOk,oppOk:opOk};
+  const last=i>=O_ROUNDS-1;
+  o.over=last&&o.myPts!==o.oppPts;
+  o.tie=last&&o.myPts===o.oppPts;
+  if(o.tie&&isHost){
+    try{let ex;for(let t=0;t<30;t++){ex=buildQuestions(1)[0];if(!o.qs.some(x=>x&&x.q===ex.q))break}o.qs[i+1]=ex;conn&&conn.open&&conn.send({t:"extra",i:i+1,q:ex})}catch(e){o.tie=false;o.over=true}
+  }
+  const b=st.querySelectorAll(".opt");
+  b.forEach(x=>x.classList.remove("lock"));
+  b[right].classList.add("ok");
+  if(me.k>=0&&!meOk)b[me.k].classList.add("no");
+  if(op.k>=0&&!opOk)b[op.k].classList.add("opp-no");
+  const chip=(k,t)=>{if(k>=0)b[k].querySelector("span").insertAdjacentHTML("beforeend",`<em class="chip">${escapeHtml(t)}</em>`)};
+  chip(me.k,"Sen");chip(op.k,oppName);
+  meOk?S.ok():S.no();
+  updatePlayers();
+  const meMsg=meOk?`Doğru! +${meP} puan.`:me.k<0?`Süre doldu. Doğru cevap ${L[right]}: ${q.o[right].t}.`:`Yanlış. Doğru cevap ${L[right]}: ${q.o[right].t}.`;
+  const opMsg=`${oppName}: ${op.k<0?"süre doldu":opOk?`doğru, +${opP} puan`:"yanlış"}.`;
+  const tail=o.over?"":o.tie?" Skor eşit, altın soru geliyor.":"";
+  const label=o.over?"Sonucu gör":o.tie?"Altın soruya geç":"Hazırım";
+  $("#fb").innerHTML=`<p id="res" tabindex="-1"><strong>${escapeHtml(meMsg)}</strong> ${escapeHtml(opMsg)} ${escapeHtml(q.e)}${escapeHtml(tail)}</p>
+  <p class="note" id="nnote"></p><button class="btn" id="nx">${label}</button>`;
+  $("#res").focus();
+  live.textContent=`${meMsg} Puan: sen ${o.myPts}, ${oppName} ${o.oppPts}.${tail}`;
+  const nx=$("#nx"),note=$("#nnote");
+  const go=()=>{
+    if(onlineState!==o)return;
+    if(o.rv){clearInterval(o.rv);o.rv=null}
+    if(o.over){endOnline();return}
+    if(o.myReady[i+1])return;
+    nx.setAttribute("aria-disabled","true");
+    note.textContent=o.oppReady[i+1]?"Başlıyor…":"Rakip bekleniyor…";
+    live.textContent=note.textContent;
+    sendReady(i+1);
+  };
+  nx.onclick=go;
+  if(!o.over&&!o.qtime)note.textContent="Hazır olduğunda düğmeye bas.";
+  if(!o.over&&o.qtime){
+    let left=O_REVEAL;
+    note.textContent=`Sonraki soru ${left} saniye içinde başlar.`;
+    o.rv=setInterval(()=>{
+      if(onlineState!==o||o.myReady[i+1]){clearInterval(o.rv);o.rv=null;return}
+      left--;
+      if(left<=0){go();return}
+      note.textContent=o.oppReady[i+1]?`Rakip hazır. ${left} saniye içinde başlar.`:`Sonraki soru ${left} saniye içinde başlar.`;
+    },1000);
+  }
+}
+
+function endOnline(){
+  const o=onlineState;
+  if(!o||o.finished)return;
+  o.finished=true;clearOnlineTimers(o);
+  const me=o.myPts,opp=o.oppPts;
+  const win=me>opp?"Kazandın!":me<opp?"Kaybettin.":"Berabere!";
+  const line=`${o.myCor} doğru – ${o.oppCor} doğru`;
+  onlineState=null;
+  postGame=true;
+  if(me>opp)S.win();
+  addChatSys("Oyun bitti. Sohbet açık, rakibine tebrik edebilirsin.");
+  st.innerHTML=`<div class="result"><h2 id="rs" tabindex="-1">${win}</h2><p class="muted">Sen – ${escapeHtml(oppName)}</p><p class="score">${me} – ${opp}</p>
+  <p class="muted">Doğru sayısı: ${line}.</p>
+  <p class="muted" id="rmStatus" role="status">Rakibinle sohbet etmeye devam edebilirsin.</p>
+  <div class="actions"><button class="btn" id="again">Rövanş</button><button class="btn ghost" id="newopp">Yeni rakip</button><button class="btn ghost" id="menu">Ana Menü</button></div></div>`;
+  $("#again").onclick=requestRematch;$("#newopp").onclick=leaveToNewMatch;$("#menu").onclick=leaveToMenu;
+  $("#rs").focus();
+  live.textContent=`Puan ${me} – ${opp}. Doğru sayısı: ${line}. Sohbet açık.`;
+  if(oppRematch)setRmStatus("Rakip rövanş istiyor. Kabul etmek için Rövanş düğmesine bas.");
+}
+
+/* ===== CHAT ===== */
+const chat=$("#chat"),chatLog=$("#chatLog");
+function chatToggle(show){chat.hidden=!show;if(!show){chatLog.innerHTML=""}}
+$("#chatForm").onsubmit=e=>{
+  e.preventDefault();const v=$("#chatInput").value.trim();if(!v)return;
+  if(!conn||!conn.open){addChatSys("Bağlantı yok.");return}
+  conn.send({t:"chat",name:myName,text:v});addChat(myName,v,true);S.chatSent();
+  $("#chatInput").value="";$("#chatInput").focus();
+};
+function addChat(name,text,mine){const d=document.createElement("div");d.className="msg "+(mine?"me":"them");d.textContent=(mine?"":name+": ")+text;chatLog.appendChild(d);chatLog.scrollTop=chatLog.scrollHeight}
+function addChatSys(text){const d=document.createElement("div");d.className="msg sys";d.textContent=text;chatLog.appendChild(d);chatLog.scrollTop=chatLog.scrollHeight}
+
+/* ===== TEK OYUNCU, GÜNLÜK MEYDAN OKUMA, ÇOK OYUNCULU ===== */
+let PROF=EG.loadProfile();
+let lastSetup=null;
+let soloMode="klasik",soloCat="";
+try{const m=localStorage.getItem("by_mod");if(m==="can")soloMode="can";soloCat=localStorage.getItem("by_kat")||""}catch(e){}
+const TIMES=[0,15,30,45,60,90];
+const esc=escapeHtml;
+function curP(){return G.players[G.cur]}
+function catChoices(need){
+  const c={};POOL.forEach(q=>{if(q[0])c[q[0]]=(c[q[0]]||0)+1});
+  return Object.keys(c).filter(k=>c[k]>=need).sort((a,b)=>a.localeCompare(b,"tr"));
+}
+function catSelect(list,sel){
+  return `<div class="set"><label for="kat">Kategori</label><select id="kat"><option value="">Karışık (tüm kategoriler)</option>${list.map(c=>`<option value="${esc(c)}"${c===sel?" selected":""}>${esc(c)}</option>`).join("")}</select></div>`;
+}
+function timeRadios(){
+  return `<fieldset class="choice"><legend>Süreli oynamak ister misin?</legend>
+    <div class="radios">${TIMES.map(v=>`<label class="radio"><input type="radio" name="sure" value="${v}"${v===soloLimit?" checked":""}><span>${v?v+" saniye":"Süresiz"}</span></label>`).join("")}</div>
+    <span class="help">Her soru için süre verilir. Süre dolunca soru yanlış sayılır. Oyun sırasında 1 ile 4 arası şık seçer, C soruyu okur, T kalan süreyi, P durumu söyler. J yarı yarıya, F arkadaşa sor, A seyirciye sor, S soruyu değiştirir.</span>
+  </fieldset>`;
+}
+function readTime(){
+  const r=st.querySelector('input[name="sure"]:checked');soloLimit=r?+r.value:0;
+  try{localStorage.setItem("by_sure",String(soloLimit))}catch(e){}
+}
+
+function soloSetup(){
+  stopSoloTimer();
+  const cats=catChoices(15+EG.SPARE);
+  st.innerHTML=`<h1>Tek Başına</h1>
+  <fieldset class="choice"><legend>Oyun modu</legend><div class="radios">
+    <label class="radio"><input type="radio" name="mod" value="klasik"${soloMode==="klasik"?" checked":""}><span>Klasik: 10 soru, ilk yanlışta oyun biter</span></label>
+    <label class="radio"><input type="radio" name="mod" value="can"${soloMode==="can"?" checked":""}><span>Can modu: 15 soru, 3 can, her yanlışta bir can gider</span></label>
+  </div></fieldset>
+  ${catSelect(cats,soloCat)}
+  ${timeRadios()}
+  <div class="menu"><button class="btn" id="go">Başla</button><button class="btn ghost" id="back">Geri</button></div>`;
+  $("#go").onclick=()=>{
+    readTime();
+    const m=st.querySelector('input[name="mod"]:checked');soloMode=m&&m.value==="can"?"can":"klasik";
+    soloCat=$("#kat").value;
+    try{localStorage.setItem("by_mod",soloMode);localStorage.setItem("by_kat",soloCat)}catch(e){}
+    ctx();startGame({mode:soloMode,cat:soloCat});
+  };
+  $("#back").onclick=home;
+  const c=st.querySelector('input[name="mod"]:checked');if(c)c.focus();
+}
+function dailyStart(){ctx();startGame({mode:"gunluk",cat:""})}
+
+function multiSetup(){
+  stopSoloTimer();
+  let names=[];try{names=JSON.parse(localStorage.getItem("by_oyuncular")||"[]")}catch(e){}
+  let cnt=2;try{cnt=Math.min(4,Math.max(2,+localStorage.getItem("by_oyuncu_sayisi")||2))}catch(e){}
+  const cats=catChoices(EG.PER_PLAYER*EG.MAX_PLAYERS+EG.MAX_PLAYERS);
+  st.innerHTML=`<h1>Çok Oyunculu</h1>
+  <p class="muted">Aynı cihazda sırayla oynayın. Herkes ${EG.PER_PLAYER} soru cevaplar, herkesin kendi jokerleri olur, en çok puan toplayan kazanır. Bu oyunlar rütbeni ve rekorlarını etkilemez.</p>
+  <fieldset class="choice"><legend>Oyuncu sayısı</legend><div class="radios">${[2,3,4].map(v=>`<label class="radio"><input type="radio" name="say" value="${v}"${v===cnt?" checked":""}><span>${v} oyuncu</span></label>`).join("")}</div></fieldset>
+  <div class="names">${[0,1,2,3].map(k=>`<div class="set"><label for="pn${k}">${k+1}. oyuncunun adı</label><input id="pn${k}" type="text" maxlength="20" value="${esc(names[k]||"")}" autocomplete="off"></div>`).join("")}</div>
+  ${catSelect(cats,"")}
+  ${timeRadios()}
+  <div class="menu"><button class="btn" id="go">Başla</button><button class="btn ghost" id="back">Geri</button></div>`;
+  $("#go").onclick=()=>{
+    readTime();
+    const c=+st.querySelector('input[name="say"]:checked').value;
+    const raw=[0,1,2,3].map(k=>$("#pn"+k).value);
+    try{localStorage.setItem("by_oyuncular",JSON.stringify(raw.map(r=>r.trim().slice(0,20))));localStorage.setItem("by_oyuncu_sayisi",String(c))}catch(e){}
+    ctx();startGame({mode:"coklu",cat:$("#kat").value,players:EG.cleanNames(raw.slice(0,c))});
+  };
+  $("#back").onclick=home;
+  const c=st.querySelector('input[name="say"]:checked');if(c)c.focus();
+}
+
+function makeGame(pd){
+  if(!POOL||POOL.length<10)throw new Error("Soru havuzu yetersiz.");
+  let pool=POOL.map(EG.toQ),n,lives,rng,players;
+  if(pd.mode==="coklu"){players=pd.players;n=EG.PER_PLAYER*players.length;lives=999}
+  else{[n,lives]=EG.MODE_RULES[pd.mode]}
+  if(pd.cat&&pd.mode!=="gunluk"){const sub=pool.filter(q=>q.cat===pd.cat);if(sub.length>=n)pool=sub}
+  if(pd.mode==="gunluk"){pool.sort(EG.cmpQ);rng=EG.rngDaily()}else rng=EG.rngDefault();
+  return EG.newGame(pool,{mode:pd.mode,limit:soloLimit,n,lives,rng,players});
+}
+function rulesText(g,pd){
+  let s;
+  if(g.mode==="coklu")s=`${g.players.length} oyuncu. Herkes ${g.n/g.players.length} soru cevaplar. İlk sıra: ${g.players[0].name}.`;
+  else if(g.mode==="gunluk")s=`Bugünün herkes için aynı ${g.n} sorusu. ${g.lives} canın var.`;
+  else if(g.mode==="can")s=`${g.n} soru, ${g.lives} canın var.`;
+  else s=`${g.n} soru. İlk yanlışta oyun biter.`;
+  if(pd.cat&&g.mode!=="gunluk")s+=` Kategori: ${pd.cat}.`;
+  return s;
+}
+function startGame(pd){
+  lastSetup=pd;S.start();stopSoloTimer();
+  try{G=makeGame(pd)}
+  catch(e){st.innerHTML=`<h1>Sorular yüklenemedi</h1><p class="muted">${esc(e.message)}</p>`;return}
+  const g=G,rules=rulesText(g,pd);
+  st.innerHTML=`<h2>${g.mode==="gunluk"?"Günün meydan okuması":g.mode==="coklu"?"Hazır mısınız?":"Hazır mısın?"}</h2><p class="muted" role="status">${esc(rules)}</p>`;
+  live.textContent="Hazır mısın? "+rules;
+  setTimeout(()=>{if(G===g)showQ()},2800);
+}
+
+function statusText(){
+  const p=curP(),a=[];
+  if(G.mode==="coklu")a.push("Sıra: "+p.name);
+  a.push("Puan: "+p.score);
+  if(p.streak>=2)a.push("Seri: "+p.streak);
+  if(G.mode==="can"||G.mode==="gunluk")a.push("Can: "+G.lives);
+  return a.join(", ");
+}
+function questionSpeech(withTime){
+  const q=G.qs[G.i];
+  const opts=q.o.map((o,k)=>o.gone?null:`${L[k]}: ${o.t}`).filter(Boolean).join(", ");
+  let s=`Soru ${G.i+1} / ${G.n}. Kategori: ${q.cat}. ${q.q} Seçenekler: ${opts}.`;
+  if(G.mode==="coklu")s=`Sıra: ${curP().name}. `+s;
+  if(withTime&&G.limit&&G.tm)s+=" "+timeLeftText();
+  return s;
+}
+function jokerButtons(){
+  const p=curP(),swapOk=p.swap&&G.spares.length;
+  const d=[["jk","Yarı yarıya",p.joker,"kullanıldı"],["jf","Arkadaşa sor",p.friend,"kullanıldı"],
+           ["ja","Seyirciye sor",p.audience,"kullanıldı"],["js","Soruyu değiştir",swapOk,p.swap?"yedek soru yok":"kullanıldı"]];
+  const key={jk:"J",jf:"F",ja:"A",js:"S"};
+  return `<div class="jokers">${d.map(x=>`<button class="btn ghost" id="${x[0]}" aria-keyshortcuts="${key[x[0]]}"${x[2]?"":" disabled"}>${x[1]}${x[2]?` (${key[x[0]]})`:` (${x[3]})`}</button>`).join("")}</div>
+  <div class="jkinfo" id="jkinfo" hidden></div>`;
+}
+function showQ(swapped){
+  if(!G)return;
+  const q=G.qs[G.i];G.lock=false;G.cur=G.i%G.players.length;const p=curP();
+  if(G.i>0&&!swapped)S.next();
+  st.innerHTML=`<ol class="ladder" aria-hidden="true">${G.qs.map((_,k)=>`<li class="${k<G.i?"done":k===G.i?"now":""}"></li>`).join("")}</ol>
+  <div class="meta"><span>${G.mode==="coklu"?"Sıra: "+esc(p.name)+" — ":""}Soru ${G.i+1} / ${G.n}</span><span>${esc(q.cat)}</span></div>
+  <p class="stat" id="stat">${esc(statusText())}</p>
+  ${G.limit?`<div class="timer" id="timer" aria-hidden="true"><span class="timer-n" id="timerN">${G.limit}</span><div class="timer-bar"><i id="timerBar"></i></div></div>`:""}
+  <h2 class="q" id="qt" tabindex="-1">${esc(q.q)}</h2>
+  <div class="opts" role="group" aria-labelledby="qt">${q.o.map((o,k)=>`<button class="opt" data-k="${k}"><b>${L[k]}</b><span>${esc(o.t)}</span></button>`).join("")}</div>
+  <div class="fb" id="fb"></div>
+  ${jokerButtons()}`;
+  st.querySelectorAll(".opt").forEach(b=>b.onclick=()=>soloPick(+b.dataset.k));
+  $("#jk").onclick=useHalf;$("#jf").onclick=useFriend;$("#ja").onclick=useAudience;$("#js").onclick=useSwap;
+  playMode(true);$("#qt").focus();
+  if(swapped)live.textContent="Soru değiştirildi.";
+  else if(G.mode==="coklu")live.textContent="Sıra: "+p.name+".";
+  else if(G.i===0)live.textContent="Jokerler: J yarı yarıya, F arkadaşa sor, A seyirciye sor, S soruyu değiştir.";
+  G.qStart=Date.now();startSoloTimer();
+}
+function jokerOff(id,label){const b=$("#"+id);if(b){b.disabled=true;b.textContent=label+" (kullanıldı)"}}
+function lockJokers(){["jk","jf","ja","js"].forEach(id=>{const b=$("#"+id);if(b)b.disabled=true})}
+function showInfo(t){const e=$("#jkinfo");if(e){e.hidden=false;e.textContent=t}live.textContent="";setTimeout(()=>{live.textContent=t},50)}
+
+function useHalf(){
+  if(!G||G.lock||!curP().joker||!st.querySelector(".opts"))return;
+  const p=curP();p.joker=false;p.jokersUsed++;S.pick();
+  const q=G.qs[G.i];q.half=true;
+  shuf(q.o.map((o,k)=>k).filter(k=>!q.o[k].c&&!q.o[k].gone)).slice(0,2).forEach(k=>{
+    q.o[k].gone=true;const b=st.querySelectorAll(".opt")[k];
+    b.classList.add("gone");b.setAttribute("aria-disabled","true");b.setAttribute("aria-label","Elendi: "+q.o[k].t)});
+  jokerOff("jk","Yarı yarıya");
+  const left=q.o.map((o,k)=>o.gone?null:`${L[k]}: ${o.t}`).filter(Boolean).join(", ");
+  showInfo("Joker kullanıldı. İki yanlış şık elendi. Kalan şıklar: "+left+".");
+  const first=[...st.querySelectorAll(".opt")].find(b=>b.getAttribute("aria-disabled")!=="true");first&&first.focus();
+}
+function useFriend(){
+  if(!G||G.lock||!curP().friend||!st.querySelector(".opts"))return;
+  const p=curP();p.friend=false;p.jokersUsed++;S.phone();
+  const q=G.qs[G.i],right=q.o.findIndex(o=>o.c),avail=q.o.map((o,k)=>o.gone?-1:k).filter(k=>k>=0);
+  const h=EG.friendHint(right,avail,q.cat);q.friend=h.idx;q.friendRight=h.right;
+  jokerOff("jf","Arkadaşa sor");
+  showInfo(`Telefondaki arkadaşın: ${h.name}. ${h.intro} ${h.note} Bence ${L[h.idx]}: ${q.o[h.idx].t}. ${h.level}`.replace(/  +/g," "));
+  const b=st.querySelectorAll(".opt")[h.idx];b&&b.focus();
+}
+function useAudience(){
+  if(!G||G.lock||!curP().audience||!st.querySelector(".opts"))return;
+  const p=curP();p.audience=false;p.jokersUsed++;S.crowd();
+  const q=G.qs[G.i],right=q.o.findIndex(o=>o.c),avail=q.o.map((o,k)=>o.gone?-1:k).filter(k=>k>=0);
+  q.audience=true;const poll=EG.audiencePoll(right,avail);
+  jokerOff("ja","Seyirciye sor");
+  const keys=Object.keys(poll).map(Number).sort((a,b)=>a-b);
+  showInfo("Seyirci oyladı. "+keys.map(k=>`${L[k]} yüzde ${poll[k]}`).join(", ")+".");
+  const top=keys.reduce((a,b)=>poll[b]>poll[a]?b:a);const b=st.querySelectorAll(".opt")[top];b&&b.focus();
+}
+function useSwap(){
+  if(!G||G.lock||!curP().swap||!st.querySelector(".opts"))return;
+  if(!G.spares.length){live.textContent="Yedek soru kalmadı.";return}
+  curP().swap=false;S.swap();stopSoloTimer();
+  G.qs[G.i]=G.spares.shift();showQ(true);
+}
+
+/* ===== SÜRE (isteğe bağlı) ===== */
+function stopSoloTimer(){if(G&&G.tm){clearInterval(G.tm);G.tm=null}}
+function soloRemaining(){return G&&G.deadline?Math.max(0,Math.ceil((G.deadline-Date.now())/1000)):0}
+function timeLeftText(){
+  if(G&&G.qs){
+    if(!G.limit) return "Süre sınırı kapalı.";
+    if(G.tm) return "Kalan süre: "+soloRemaining()+" saniye.";
+    return "Bu soru için süre durdu.";
+  }
+  if(onlineState) return onlineTimeText();
+  return "";
+}
+function startSoloTimer(){
+  if(!G||!G.limit) return;
+  stopSoloTimer();
+  G.deadline=Date.now()+G.limit*1000;G.warn10=false;
+  const n=$("#timerN"),bar=$("#timerBar"),box=$("#timer");let lastTick=-1;
+  G.tm=setInterval(()=>{
+    if(!G||G.lock){stopSoloTimer();return}
+    const ms=Math.max(0,G.deadline-Date.now()),sec=Math.ceil(ms/1000);
+    if(n)n.textContent=sec;
+    if(bar)bar.style.width=(ms/(G.limit*1000)*100)+"%";
+    if(box)box.classList.toggle("low",sec<=5);
+    if(sec<=5&&sec>0&&sec!==lastTick){lastTick=sec;S.tick()}
+    if(sec===10&&!G.warn10&&G.limit>10){G.warn10=true;live.textContent="10 saniye kaldı."}
+    if(ms<=0)soloTimeout();
+  },200);
+}
+function soloTimeout(){
+  if(!G||G.lock) return;
+  G.lock=true;stopSoloTimer();
+  st.querySelectorAll(".opt").forEach(x=>x.setAttribute("aria-disabled","true"));
+  lockJokers();soloReveal(-1);
+}
+function soloPick(k){
+  if(!G||G.lock)return;const b=st.querySelectorAll(".opt");
+  if(b[k].getAttribute("aria-disabled")==="true")return;
+  G.lock=true;G.elapsed=Math.max(0,(Date.now()-G.qStart)/1000);
+  G.remAtPick=(G.limit&&G.tm)?soloRemaining():null;
+  stopSoloTimer();const q=G.qs[G.i];
+  b.forEach(x=>x.setAttribute("aria-disabled","true"));b[k].classList.add("lock");lockJokers();
+  S.pick();S.beat(3);live.textContent=`${L[k]} şıkkı kilitlendi: ${q.o[k].t}. Sonuç bekleniyor.`;
+  const g=G;setTimeout(()=>{if(G===g)soloReveal(k)},2200);
+}
+function soloReveal(k){
+  if(!G) return;
+  stopSoloTimer();
+  const q=G.qs[G.i],p=curP(),b=st.querySelectorAll(".opt"),right=q.o.findIndex(o=>o.c),good=k===right;
+  if(k>=0){b[k].classList.remove("lock");b[k].classList.add(good?"ok":"no")}b[right].classList.add("ok");
+  const last=G.i===G.n-1;
+  p.answered++;
+  const cs=G.cats[q.cat]||(G.cats[q.cat]=[0,0]);cs[1]++;
+  let pts=0;
+  if(good){
+    cs[0]++;p.correct++;p.streak++;p.best=Math.max(p.best,p.streak);
+    pts=EG.scoreQuestion(G.elapsed,G.limit||30,p.streak,q.half,q.friend!==null,q.audience).total;
+    p.score+=pts;
+    if(G.fastest===null||G.elapsed<G.fastest)G.fastest=G.elapsed;
+    if(G.remAtPick!==null&&G.remAtPick<=2)G.lastSec=true;
+    if(q.friend!==null&&!q.friendRight)G.fooledRight=true;
+  }else{p.streak=0;G.lives--;G.livesLost++}
+  G.over=last||G.lives<=0;G.finished=last&&G.lives>0;
+  good?S.ok():S.no();
+  if(good&&EG.STREAK_SOUND_AT.includes(p.streak)){const g=G;setTimeout(()=>{if(G===g)S.seri()},1300)}
+  let msg;
+  if(k<0)msg=`${EG.pickOf(EG.TIMEOUT_LINES)} Doğru cevap ${L[right]}: ${q.o[right].t}.`;
+  else if(good){msg=`${EG.pickOf(EG.GOOD_LINES)} +${pts} puan.`;const sl=EG.streakLine(p.streak);if(sl)msg+=" "+sl}
+  else msg=`${EG.pickOf(EG.BAD_LINES)} Doğru cevap ${L[right]}: ${q.o[right].t}.`;
+  if(!good&&(G.mode==="can"||G.mode==="gunluk"))msg+=G.lives>0?` Bir can kaybettin, ${G.lives} canın kaldı.`:" Canların bitti.";
+  if(G.mode==="coklu")msg=p.name+": "+msg;
+  msg+=` Toplam puan: ${p.score}.`;
+  const stat=$("#stat");if(stat)stat.textContent=statusText();
+  const nextLabel=G.over?"Sonucu gör":"Sonraki soru";
+  $("#fb").innerHTML=`<p id="res" tabindex="-1"><strong>${esc(msg)}</strong> ${esc(q.e)}</p><button class="btn" id="nx">${nextLabel}</button>`;
+  $("#res").focus();live.textContent=msg;
+  const g=G;
+  $("#nx").onclick=()=>{
+    if(G!==g)return;
+    if(G.over){soloEnd();return}
+    G.i++;
+    if(G.mode==="coklu"&&G.players.length>1)showTurn();else showQ();
+  };
+}
+function showTurn(){
+  const nxt=G.players[G.i%G.players.length],board=G.players.map(p=>`${p.name} ${p.score} puan`).join("; ");
+  playMode(false);S.found();
+  st.innerHTML=`<div class="result"><h2 id="tn" tabindex="-1">Sıra: ${esc(nxt.name)}</h2><p class="muted">Puan durumu: ${esc(board)}.</p>
+  <div class="actions"><button class="btn" id="go">Başla</button></div></div>`;
+  live.textContent=`Sıra: ${nxt.name}. Puan durumu: ${board}. Hazır olunca Başla düğmesine bas.`;
+  const g=G;$("#go").onclick=()=>{if(G===g)showQ()};$("#go").focus();
+}
+
+function soloEnd(){
+  stopSoloTimer();
+  if(G.mode==="coklu"){endMulti();return}
+  const p=G.players[0];let res=null;
+  if(!G.saved){G.saved=true;res=EG.applyResult(PROF,EG.summary(G));EG.saveProfile(PROF)}
+  const perfect=G.finished&&p.correct===G.n,ratio=p.correct/(G.n||1);
+  const title=perfect?"Hepsini bildin!":ratio>=0.7?"Çok iyi!":ratio>=0.4?"Fena değil.":"Bir daha dene.";
+  const lines=[["Mod: "+EG.MODE_NAMES[G.mode]],[`Doğru: ${p.correct} / ${G.n}`],[`En uzun seri: ${p.best}`]];
+  const seq=[];if(perfect)seq.push("win");
+  if(res){
+    if(res.newRecord){lines.push([res.oldRecord?`Yeni rekor! Önceki en iyi: ${res.oldRecord}.`:"İlk rekorun kaydedildi!",1]);seq.push("rekor")}
+    else if(res.newStreakRecord)lines.push([`Yeni seri rekoru: ${p.best}.`,1]);
+    if(res.newRank){lines.push([`Yeni rütbe: ${res.newRank}!`,1]);seq.push("basarim")}
+    res.newAch.forEach(a=>lines.push([`Yeni başarım: ${a[0]}. ${a[1]}`,1]));
+    if(res.newAch.length&&!seq.includes("basarim"))seq.push("basarim");
+    if(res.dayStreak>=2)lines.push([`Üst üste ${res.dayStreak} gündür oynuyorsun.`,1]);
+  }
+  lines.push([EG.rankLine(PROF)]);
+  playMode(false);
+  st.innerHTML=`<div class="result"><h2 id="rs" tabindex="-1">${title}</h2><p class="score">${p.score}</p><p class="muted">puan</p>
+  <ul class="resl">${lines.map(l=>`<li${l[1]?' class="hl"':""}>${esc(l[0])}</li>`).join("")}</ul>
+  <div class="actions"><button class="btn" id="again">Tekrar oyna</button><button class="btn ghost" id="set">Ayarları değiştir</button><button class="btn ghost" id="prof">Profilim</button><button class="btn ghost" id="again2">Ana Menü</button></div>
+  <p class="foot"><a href="iletisim.html">Hatalı soru bildir / iletişim</a></p></div>`;
+  let t=0;seq.forEach(n=>{setTimeout(()=>S[n]&&S[n](),t);t+=n==="win"?3500:1900});
+  live.textContent=`${title} ${p.score} puan. ${lines.map(l=>l[0]).join(" ")}`;$("#rs").focus();
+  $("#again").onclick=()=>startGame(lastSetup);$("#set").onclick=soloSetup;$("#prof").onclick=showProfile;$("#again2").onclick=home;
+}
+function endMulti(){
+  const per=G.n/G.players.length;
+  const ranked=G.players.slice().sort((a,b)=>b.score-a.score||b.correct-a.correct);
+  const top=G.players.filter(p=>p.score===ranked[0].score);
+  const title=top.length>1?"Berabere!":ranked[0].name+" kazandı!";
+  const head=top.length>1?"Berabere kalanlar: "+top.map(p=>p.name).join(", ")+".":"Kazanan: "+ranked[0].name+".";
+  const rows=ranked.map((p,i)=>`${i+1}. ${p.name}: ${p.score} puan, ${p.correct} / ${per} doğru, en uzun seri ${p.best}.`);
+  S.win();playMode(false);
+  st.innerHTML=`<div class="result"><h2 id="rs" tabindex="-1">${esc(title)}</h2><p class="muted">${esc(head)}</p>
+  <ol class="board">${ranked.map((p,i)=>`<li${p.score===ranked[0].score?' class="win"':""}><span>${i+1}. ${esc(p.name)}</span><span>${p.score} puan, ${p.correct} / ${per} doğru</span></li>`).join("")}</ol>
+  <div class="actions"><button class="btn" id="again">Tekrar oyna (aynı oyuncular)</button><button class="btn ghost" id="set">Oyuncuları değiştir</button><button class="btn ghost" id="again2">Ana Menü</button></div></div>`;
+  live.textContent=`${title} ${rows.join(" ")}`;$("#rs").focus();
+  $("#again").onclick=()=>startGame(lastSetup);$("#set").onclick=multiSetup;$("#again2").onclick=home;
+}
+
+function showProfile(){
+  stopSoloTimer();playMode(false);
+  const lines=EG.statsLines(PROF),ac=EG.achievementLists(PROF);
+  st.innerHTML=`<h1>Profilim</h1>
+  <section aria-labelledby="hs"><h2 id="hs" tabindex="-1">Rütbe ve istatistikler</h2><div class="statbox">${lines.map(l=>`<p>${esc(l)}</p>`).join("")}</div></section>
+  <section aria-labelledby="ha"><h2 id="ha">Başarımlar (${ac.got.length} / ${ac.total})</h2>
+  <ul class="plist">${ac.got.map(a=>`<li><strong>${esc(a[0])}</strong><small>${esc(a[1])}</small></li>`).join("")}${ac.lock.map(a=>`<li class="locked"><strong>${esc(a[0])}</strong> (henüz kazanılmadı)<small>${esc(a[1])}</small></li>`).join("")}</ul></section>
+  <div class="menu"><button class="btn" id="back">Geri</button></div>`;
+  live.textContent="Profilim. "+lines.join(" ");
+  $("#back").onclick=home;$("#hs").focus();
+}
+
+
+/* ===== KLAVYE ===== */
+document.addEventListener("keydown",e=>{
+  const inGame=st.querySelector(".opts");if(!inGame||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;
+  const key=e.key.toLowerCase();
+  if(key.length===1&&"1234".includes(key)){const b=inGame.querySelectorAll(".opt")[+key-1];b&&b.click();return}
+  const nav={arrowdown:1,arrowright:1,arrowup:-1,arrowleft:-1}[key];
+  if(nav||key==="home"||key==="end"){
+    if((G&&G.lock)||(onlineState&&onlineState.locked))return;
+    const o=[...inGame.querySelectorAll(".opt")].filter(x=>x.getAttribute("aria-disabled")!=="true");
+    if(!o.length)return;e.preventDefault();
+    const i=o.indexOf(document.activeElement);
+    o[key==="home"?0:key==="end"?o.length-1:i<0?(nav>0?0:o.length-1):(i+nav+o.length)%o.length].focus();
+  }
+});
+
+/* ===== C TUŞU: SORUYU EKRAN OKUYUCUYA OKU ===== */
+document.addEventListener("keydown",e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  if(e.key.toLowerCase()!=="c") return;
+  const tag=e.target.tagName;
+  if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT") return;
+  const opts=st.querySelector(".opts");
+  if(!opts) return;
+  e.preventDefault();
+  let qText="", cat="", idxTxt="";
+  let qData=null;
+  if(G && G.qs && G.qs[G.i]){
+    qData=G.qs[G.i]; idxTxt=(G.mode==="coklu"?"Sıra: "+curP().name+". ":"")+`Soru ${G.i+1} / ${G.n}`;
+  } else if(onlineState&&onlineState.qs[onlineState.round]){
+    const o=onlineState;qData=o.qs[o.round];
+    idxTxt=o.round>=O_ROUNDS?"Altın soru":`Soru ${o.round+1} / ${O_ROUNDS}`;
+  }
+  if(!qData) return;
+  cat=qData.cat||"";
+  const right=qData.o.findIndex(o=>o.c);
+  const optsText=qData.o.map((o,k)=>o.gone?null:`${L[k]}: ${o.t}`).filter(Boolean).join(", ");
+  qText=`${idxTxt}. Kategori: ${cat}. Soru: ${qData.q}. Seçenekler: ${optsText}.`+((G&&G.limit&&G.tm)||(onlineState&&onlineState.qtime&&onlineState.phase==="q"&&!onlineState.locked)?" "+timeLeftText():"");
+  live.textContent=qText;
+  // Ayrıca görünür bir canlı bölgeye de yaz
+  const el=document.getElementById("live");
+  if(el){ el.textContent=""; setTimeout(()=>{el.textContent=qText},50); }
+  // Ekran okuyucu için soruyu yeniden odakla
+  const qt=document.getElementById("qt");
+  if(qt) qt.focus();
+});
+
+/* ===== J F A S: jokerler ===== */
+document.addEventListener("keydown",e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey||!G||!G.qs||!st.querySelector(".opts"))return;
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;
+  const f={j:useHalf,f:useFriend,a:useAudience,s:useSwap}[e.key.toLowerCase()];
+  if(f){e.preventDefault();f()}
+});
+
+/* ===== T TUŞU: kalan süre, P TUŞU: puan durumu ===== */
+function scoreText(){
+  if(G&&G.qs){
+    const p=curP(),a=[];
+    if(G.mode==="coklu")a.push("Sıra: "+p.name+".");
+    a.push(`Soru ${G.i+1} / ${G.n}.`,`Puan: ${p.score}.`,`${p.correct} doğru.`);
+    if(p.streak>=2)a.push(`Seri: ${p.streak}.`);
+    if(G.mode==="can"||G.mode==="gunluk")a.push(`Kalan can: ${G.lives}.`);
+    const d=x=>x?"duruyor":"kullanıldı";
+    a.push(`Jokerler: yarı yarıya ${d(p.joker)}, arkadaşa sor ${d(p.friend)}, seyirciye sor ${d(p.audience)}, soruyu değiştir ${d(p.swap)}.`);
+    if(G.mode==="coklu")a.push("Puan durumu: "+G.players.map(x=>`${x.name} ${x.score}`).join("; ")+".");
+    return a.join(" ");
+  }
+  const o=onlineState;
+  if(o)return `Puan: sen ${o.myPts}, ${oppName} ${o.oppPts}. Sen ${o.myCor} soru bildin.`;
+  return "";
+}
+document.addEventListener("keydown",e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  const k=e.key.toLowerCase();
+  if(k!=="t"&&k!=="p") return;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if(!st.querySelector(".opts")) return;
+  e.preventDefault();
+  const t=k==="t"?timeLeftText():scoreText();
+  live.textContent="";setTimeout(()=>{live.textContent=t},50);
+});
+
+window.addEventListener("beforeunload",()=>{stopWaiting();destroyPeer()});
+load().finally(()=>{ if(POOL.length>=10) home(); });
+</script>
+</body>
+</html>
