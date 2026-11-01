@@ -32,9 +32,11 @@ Ekran okuyucu uyumlu masaüstü sürümü. Tek başına oyun + online düello (s
 - `yasal.py` — Gizlilik Politikası ve Kullanım Şartları metinleri (siteyle aynı içerik)
 - `online.py` — MQTT taşıyıcı, eşleşme, düello kuralları
 - `online_ui.py` — online ekranları
-- `questions.json` — internet yokken kullanılan yedek soru havuzu (normalde sitenin adresinden çekilir)
+- `questions.json` — internet yokken kullanılan yedek soru havuzu (normalde GitHub'daki `site/questions.json` dosyasından çekilir)
 - `requirements.txt` — paketler
 
 Günün meydan okuması, web sitesiyle birebir aynı soruları seçer.
 
-Sorular her oyunda `https://bilgiarena.netlify.app/questions.json` adresinden yenilenir.
+Sorular her oyunda `https://raw.githubusercontent.com/MUHAMMED4342/bilgi_yarismasi/master/site/questions.json` adresinden yenilenir (Netlify'dan çekilmez). Soru eklemek için GitHub'daki bu dosyayı güncellemen yeterli; uygulama ve site birkaç dakika içinde yeni soruları alır.
+
+Not: Yasak listesi ve rakip bildirimi (`yasak.py`) Netlify'daki siteye bağlanır; sorular ise yalnızca GitHub'dan gelir.

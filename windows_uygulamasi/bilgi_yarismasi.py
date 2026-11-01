@@ -2,7 +2,7 @@
 """
 Bilgi Yarışması - erişilebilir wxPython sürümü (tek başına oyun)
 
-- Sorular her oyunda https://bilgiarena.netlify.app/questions.json adresinden çekilir.
+- Sorular her oyunda GitHub'daki site/questions.json dosyasından çekilir (internet yoksa kayıtlı kopya kullanılır).
   İnternet yoksa son indirilen kayıtlı kopya, o da yoksa yanındaki questions.json kullanılır.
 - Sesler Python ile üretilir (ek ses dosyası gerekmez), ilk açılışta bir kez oluşturulup saklanır.
 - Sorular ve sonuçlar ekran okuyucuya kendiliğinden okutulur (accessible_output2 ya da SAPI).
@@ -40,7 +40,7 @@ except ImportError:  # pragma: no cover
 
 APP_NAME = "BilgiYarismasi"
 APP_TITLE = "Bilgi Yarışması"
-QUESTIONS_URL = "https://bilgiarena.netlify.app/questions.json"
+QUESTIONS_URL = "https://raw.githubusercontent.com/MUHAMMED4342/bilgi_yarismasi/master/site/questions.json"
 CONTACT_URL = "https://bilgiarena.netlify.app/iletisim.html"
 WAIT_MESSAGE = "Lütfen bekleyin, ufak birkaç işlem yapıyoruz…"
 LETTERS = "ABCD"

@@ -50,27 +50,36 @@
 </dialog>
 <script src="eglence.js"></script>
 <script>
-/* ===== SORU HAVUZU (sadece questions.json) ===== */
+/* ===== SORU HAVUZU ===== */
 let POOL = [];
 
+/* Sorular önce GitHub'daki questions.json dosyasından gelir; ulaşılamazsa sitedeki yedek kopya kullanılır. */
+const QUESTION_URLS=["https://raw.githubusercontent.com/MUHAMMED4342/bilgi_yarismasi/master/site/questions.json","questions.json"];
+async function fetchQuestions(){
+  let lastErr=null;
+  for(const u of QUESTION_URLS){
+    try{
+      const r=await fetch(u+"?t="+Date.now(),{cache:"no-store"});
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      const d=await r.json(),list=d.questions||d;
+      if(!Array.isArray(list)||list.length<10)throw new Error("en az 10 soru gerekli, bulunan: "+(Array.isArray(list)?list.length:0));
+      return list;
+    }catch(e){lastErr=e}
+  }
+  throw lastErr||new Error("Sorular indirilemedi");
+}
 async function load(){
   try {
-    const r = await fetch("questions.json?t=" + Date.now(), { cache: "no-store" });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const d = await r.json();
-    const list = d.questions || d;
-    if (!Array.isArray(list) || list.length < 10) {
-      throw new Error("questions.json en az 10 soru içermeli. Bulunan: " + (Array.isArray(list)?list.length:0));
-    }
+    const list = await fetchQuestions();
     const valid = q => q && typeof q.question==="string" && q.question.trim() && Array.isArray(q.options) && q.options.length===4
       && q.options.every(o=>String(o).trim()) && Number.isInteger(+q.answer) && +q.answer>=0 && +q.answer<4;
     POOL = list.filter(valid).map(q => [String(q.category||"").trim(), q.question.trim(), q.options.map(o=>String(o).trim()), +q.answer, String(q.explanation||"").trim()]);
-    console.log("questions.json yüklendi:", POOL.length, "soru");
+    if (POOL.length < 10) throw new Error("Geçerli soru sayısı 10'dan az: " + POOL.length);
+    console.log("Sorular yüklendi:", POOL.length, "soru");
   } catch (err) {
-    console.error("questions.json yüklenemedi:", err);
+    console.error("Sorular yüklenemedi:", err);
     st.innerHTML = `<h1>Sorular yüklenemedi</h1>
-      <p class="muted">questions.json dosyası okunamadı veya eksik. Hata: ${escapeHtml(err.message||String(err))}</p>
-      <p class="muted">Dosyanın aynı klasörde ve geçerli JSON olduğundan emin olun. En az 10 soru içermeli.</p>
+      <p class="muted">Soru dosyası okunamadı. İnternet bağlantını kontrol edip tekrar dene. Hata: ${escapeHtml(err.message||String(err))}</p>
       <button class="btn" id="retry">Tekrar Dene</button>`;
     const b = document.getElementById("retry");
     if (b) b.onclick = () => location.reload();
@@ -215,7 +224,7 @@ new MutationObserver(()=>{ if(!st.querySelector(".opts")) playMode(false); }).ob
 $("#snd").onclick=e=>{on=!on;const b=e.currentTarget;b.setAttribute("aria-pressed",String(on));b.innerHTML='Ses<span aria-hidden="true">: '+(on?"açık":"kapalı")+'</span>';if(!on)stopWaiting()};
 
 /* ===== OYUNCU KİMLİĞİ, YASAK LİSTESİ, BİLDİRİM ===== */
-const SARTLAR_SURUM="2026-10-31";
+const SARTLAR_SURUM="2026-11-01";
 let _pid="";
 function myPid(){
   if(_pid)return _pid;

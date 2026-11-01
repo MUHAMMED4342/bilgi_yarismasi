@@ -1,6 +1,6 @@
 # Bilgi Yarışması — Web Sitesi
 
-Netlify'a bu klasörü yükle (`netlify.toml` hazır). Ban sistemi için **Netlify Functions** gerekir, bu yüzden aşağıdaki "Yönetici paneli kurulumu" bölümünü oku.
+Bu klasör Netlify'a yüklenir (`netlify.toml` hazır). Windows uygulamasının zip'i Netlify'da **durmaz**: GitHub'da Releases bölümüne yüklenir, giriş sayfasındaki indirme düğmesi oraya gider. Ban sistemi için **Netlify Functions** gerekir, aşağıdaki bölümleri oku.
 
 ## Dosyalar
 - `index.html` — giriş sayfası (tarayıcıdan oyna / Windows uygulamasını indir)
@@ -10,11 +10,10 @@ Netlify'a bu klasörü yükle (`netlify.toml` hazır). Ban sistemi için **Netli
 - `gizlilik.html`, `kosullar.html` — Gizlilik Politikası ve Kullanım Şartları
 - `netlify/functions/` — ban listesi, bildirim ve yönetici işlemleri (`bans.mjs`, `report.mjs`, `admin.mjs`; tek dosyaya paketlenmiş, ek kurulum gerekmez)
 - `fonksiyon-kaynagi/` — o fonksiyonların okunabilir kaynağı ve testi (yayın için gerekmez)
-- `questions.json` — soru havuzu (masaüstü uygulaması da bu dosyayı sitenin adresinden çeker)
+- `questions.json` — soru havuzu. Site ve Windows uygulaması soruları **GitHub'daki bu dosyadan** çeker (`raw.githubusercontent.com/MUHAMMED4342/bilgi_yarismasi/master/site/questions.json`); GitHub'a ulaşılamazsa site, buradaki kopyayı yedek olarak kullanır
 - `stil.css`, `iletisim.html`, `tesekkur.html` — ortak stil ve iletişim sayfaları
-- `bilgi_yarisi.zip` — Windows uygulaması (giriş sayfasındaki indirme bağlantısı)
 - `baslat.bat` — siteyi bilgisayarında denemek için yerel sunucu (ban sistemi yerelde çalışmaz)
-- `prompt.txt` — yapay zekâya yeni soru yazdırma talimatı
+
 
 ## Yönetici paneli kurulumu
 1. Netlify'da siteni aç: **Site configuration → Environment variables → Add a variable**.

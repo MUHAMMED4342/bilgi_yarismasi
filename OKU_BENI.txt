@@ -1,85 +1,142 @@
 BİLGİ YARIŞMASI - DOSYA REHBERİ
 ================================
 
-Bu pakette 2 klasör var. Birbirinden bağımsızdır:
+Paket 2 klasör + 2 küçük dosyadan oluşur:
 
-  windows_uygulamasi\   -> Windows masaüstü uygulaması (Python + wxPython)
-  site\                 -> Netlify'a yüklenecek web sitesi
+  windows_uygulamasi\   Windows masaüstü uygulaması
+  site\                 Web sitesi (Netlify'da yayınlanır)
+  .gitignore            GitHub'a gereksiz dosya (zip, node_modules...) yüklenmesin diye
+  OKU_BENI.txt          Bu rehber
 
-İki klasörde de aynı questions.json (1559 soru) bulunur.
+GitHub deposunun (MUHAMMED4342/bilgi_yarismasi) kök klasörü şöyle görünmeli:
+
+  site\
+  windows_uygulamasi\
+  .gitignore
+  OKU_BENI.txt
+
+Sorular: iki klasörde de AYNI questions.json (1559 soru) var.
+Site ve Windows uygulaması soruları GitHub'daki şu dosyadan çeker:
+  https://raw.githubusercontent.com/MUHAMMED4342/bilgi_yarismasi/master/site/questions.json
+(Yani soru eklemek için sadece GitHub'daki site\questions.json dosyasını güncelle.)
 
 
---------------------------------------------------------------------
-1) windows_uygulamasi\   (uygulama)
---------------------------------------------------------------------
-  bilgi_yarismasi.py   Ana uygulama ve arayüz (menüler, oyun, ekranlar)
-  eglence.py           Puan, rütbe, başarım, günlük meydan okuma, arkadaşa sor, seyirciye sor
+====================================================================
+1) windows_uygulamasi\   (masaüstü uygulaması)
+====================================================================
+  bilgi_yarismasi.py   Ana uygulama ve ekranlar
+  eglence.py           Puan, rütbe, başarım, günlük meydan okuma, jokerler
   online.py            Online düello altyapısı (eşleşme, MQTT, kurallar)
   online_ui.py         Online düello ekranları
-  yasak.py             Oyuncu kimliği, yasak listesi kontrolü, rakibi bildirme
+  yasak.py             Oyuncu kimliği, yasak kontrolü, rakibi bildirme
   yasal.py             Gizlilik Politikası ve Kullanım Şartları metinleri
   questions.json       Soru havuzu (internet yokken yedek olarak kullanılır)
   requirements.txt     Gerekli Python paketleri
-  calistir.bat         Çift tıkla: gerekli paketleri kurar ve uygulamayı açar
-  exe_olustur.bat      Çift tıkla: 32 bit EXE paketi (BilgiYarismasi_tasinabilir.zip) üretir
-  BilgiYarismasi.spec  PyInstaller ayarı (exe_olustur.bat kullanır, elle dokunma)
+  calistir.bat         Çift tıkla: paketleri kurar, uygulamayı açar
+  exe_olustur.bat      Çift tıkla: 32 bit EXE zip'i üretir (BilgiYarismasi_tasinabilir.zip)
+  BilgiYarismasi.spec  PyInstaller ayarı (exe_olustur.bat kullanır, dokunma)
   README.md            Kısa açıklama
 
-  ÖNEMLİ: Tüm .py dosyaları ve .bat dosyaları AYNI klasörde kalmalı.
-
-  EXE yapmak için: exe_olustur.bat dosyasına çift tıkla.
-  Çıkan BilgiYarismasi_tasinabilir.zip dosyasını, siteye koyacağın
-  "bilgi_yarisi.zip" olarak yeniden adlandır (aşağıya bak).
+  Tüm .py ve .bat dosyaları AYNI klasörde kalmalı.
 
 
---------------------------------------------------------------------
-2) site\   (web sitesi - Netlify'a yüklenir)
---------------------------------------------------------------------
-Sayfalar:
-  index.html           Giriş sayfası ("Tarayıcıdan oyna" / "Windows uygulamasını indir")
-  index2.html          Oyunun kendisi (tek başına, günlük, çok oyunculu, online)
-  admin.html           Yönetici paneli (yasaklama burada yapılır)
-  gizlilik.html        Gizlilik Politikası
-  kosullar.html        Kullanım Şartları
-  iletisim.html        İletişim formu
-  tesekkur.html        Form gönderildikten sonra açılan teşekkür sayfası
+====================================================================
+2) site\   (web sitesi)
+====================================================================
+  Sayfalar
+    index.html         Giriş sayfası ("Tarayıcıdan oyna" / "Windows uygulamasını indir")
+    index2.html        Oyunun kendisi
+    admin.html         Yönetici paneli (yasaklama burada)
+    gizlilik.html      Gizlilik Politikası
+    kosullar.html      Kullanım Şartları
+    iletisim.html      İletişim formu
+    tesekkur.html      Form sonrası teşekkür sayfası
+  Kod ve stil
+    eglence.js         Oyun mantığı (puan, rütbe, jokerler, günlük meydan okuma)
+    stil.css           Ortak görünüm
+    service-worker.js  Eski önbelleği temizler
+  Veri
+    questions.json     Soru havuzu (GitHub'dakinin kopyası, GitHub'a ulaşılamazsa yedek)
+    prompt.txt         Yapay zekâya yeni soru yazdırma talimatı
+  Ayar ve ban sistemi
+    netlify.toml       Netlify ayarları
+    netlify\functions\ bans.mjs, report.mjs, admin.mjs -> HAZIR, dokunma
+    fonksiyon-kaynagi\ Bu 3 dosyanın okunabilir kaynağı. İSTEĞE BAĞLI, silebilirsin.
+  Diğer
+    baslat.bat         Siteyi kendi bilgisayarında denemek için
+    README.md          Ayrıntılı açıklama
 
-Kod ve stil:
-  eglence.js           Puan, rütbe, başarım, jokerler, günlük meydan okuma (oyun mantığı)
-  stil.css             Tüm sayfaların ortak görünümü
-  service-worker.js    Eski önbelleği temizler
-
-Veri:
-  questions.json       Soru havuzu (masaüstü uygulaması da bunu sitenin adresinden çeker)
-  prompt.txt           Yapay zekâya yeni soru yazdırma talimatı
-
-Ayar:
-  netlify.toml         Netlify ayarları (fonksiyon klasörü, güvenlik başlıkları)
-
-Ban sistemi (sunucu tarafı):
-  netlify\functions\   bans.mjs, report.mjs, admin.mjs  -> HAZIR, dokunma, olduğu gibi yükle
-  fonksiyon-kaynagi\   Yukarıdaki 3 dosyanın okunabilir kaynağı ve testi.
-                       İSTEĞE BAĞLI: yayın için gerekmez, istersen silebilirsin.
-
-Diğer:
-  baslat.bat           Siteyi kendi bilgisayarında denemek için (ban sistemi yerelde çalışmaz)
-  README.md            Ayrıntılı açıklama
-
-  ÖNEMLİ: site klasörünün içeriğini (klasörün kendisini değil, içindekileri)
-  olduğu gibi Netlify'a yükle. "netlify" klasörü de yüklenmeli.
+  NOT: Windows uygulamasının zip'i site klasöründe YOK. Netlify'a zip yüklenmez,
+  indirme düğmesi GitHub Releases'e gider.
 
 
---------------------------------------------------------------------
-3) SENİN YAPACAKLARIN (sırayla)
---------------------------------------------------------------------
-  a) windows_uygulamasi\exe_olustur.bat ile EXE zip'ini üret.
-  b) Çıkan zip'i "bilgi_yarisi.zip" adıyla site\ klasörünün içine koy
-     (index.html'deki "Windows Uygulamasını İndir" bağlantısı bu adı bekler).
-  c) site klasörünün içeriğini Netlify'a yükle.
-  d) Netlify > Site configuration > Environment variables bölümünden
-     ADMIN_PASSWORD adıyla bir parola tanımla, siteyi yeniden yayınla.
-  e) https://bilgiarena.netlify.app/admin.html adresine gir, parolayla oturum aç.
+====================================================================
+3) YAPILACAKLAR (sırayla)
+====================================================================
+
+A) GITHUB
+  1. Bu paketteki site\, windows_uygulamasi\, .gitignore ve OKU_BENI.txt dosyalarını
+     depoya yükle (var olanların üzerine yaz). Depo kökünde "site" klasörü olmalı;
+     çünkü sorular site/questions.json yolundan çekiliyor. Dal adı "master" olmalı.
+  2. EXE'yi üret: windows_uygulamasi\exe_olustur.bat dosyasına çift tıkla.
+     Çıkan BilgiYarismasi_tasinabilir.zip dosyasını ADINI DEĞİŞTİRMEDEN sakla.
+  3. GitHub'da depo sayfası > sağdaki "Releases" > "Create a new release":
+       - Tag: v1.0 (yeni sürümde v1.1, v1.2...)
+       - Başlık: istediğin bir şey
+       - "Attach binaries" bölümüne BilgiYarismasi_tasinabilir.zip dosyasını sürükle
+       - "Publish release" düğmesine bas
+     Siteki "Windows Uygulamasını İndir" düğmesi şu adrese gider ve en son sürümü indirir:
+       https://github.com/MUHAMMED4342/bilgi_yarismasi/releases/latest/download/BilgiYarismasi_tasinabilir.zip
+     (Zip'in adı tam olarak BilgiYarismasi_tasinabilir.zip olmalı. Taslak (draft) ya da
+     "pre-release" sürümler "latest" sayılmaz.)
+
+B) NETLIFY (önerilen yol: GitHub'a bağla, her değişiklikte otomatik yayınlanır)
+  Zaten bir sitenin (bilgiarena) varsa yenisini açma, mevcut siteye depoyu bağla:
+  1. app.netlify.com > siteni aç > Site configuration > Build & deploy >
+     Continuous deployment > "Link repository" (ya da yeni site ise:
+     Add new site > Import an existing project > GitHub).
+  2. GitHub'ı seç, "bilgi_yarismasi" deposunu seç.
+  3. Ayarlar:
+       Branch to deploy ........ master
+       Base directory .......... site
+       Build command ........... (boş bırak)
+       Publish directory ....... .   (sadece nokta; boşsa da olur)
+     "Deploy" de. Netlify, site klasöründeki netlify.toml ve netlify\functions\
+     klasörünü kendisi bulur.
+  4. Yönetici parolası: Site configuration > Environment variables >
+     "Add a variable" (ya da "Add a single variable"):
+       Key ..... ADMIN_PASSWORD
+       Value ... uzun, tahmin edilmesi zor bir parola (kimseye söyleme)
+     Kaydet.
+  5. Parola ancak yeni yayınla geçerli olur: Deploys > "Trigger deploy" >
+     "Deploy site" (ya da GitHub'a küçük bir değişiklik gönder).
+  6. Kontrol et:
+       https://bilgiarena.netlify.app/api/bans
+         -> {"bans":[],"t":...} gibi bir yanıt görmelisin (liste boş olabilir).
+       https://bilgiarena.netlify.app/admin.html
+         -> parola kutusu gelir; ADMIN_PASSWORD ile gir.
+     /api/bans 404 verirse fonksiyonlar yayınlanmamıştır: Netlify'da Deploys >
+     son yayın > "Functions" sekmesinde bans, report, admin görünmeli. Görünmüyorsa
+     Base directory'nin "site" olduğunu ve netlify\functions\ klasörünün
+     depoya yüklendiğini kontrol et.
+
+  Alternatif yol (GitHub bağlamadan): site klasörünün İÇİNDEKİLERİ (netlify klasörü
+  dahil) Netlify'ın "Deploys" sayfasındaki sürükle-bırak alanına bırak. Bu yolun
+  fonksiyonlarla çalışıp çalışmadığını doğrulayamadım; /api/bans açılmazsa
+  yukarıdaki GitHub yolunu kullan.
+
+C) YÖNETİCİ PANELİ KULLANIMI
+  admin.html > parolayla giriş.
+  - Bildirimler: oyuncuların "Rakibi bildir" ile gönderdikleri şikâyetler.
+    "Yasakla…" ile süre seç (1, 7, 30 gün ya da 0 = kalıcı).
+  - Yasaklılar: "Yasağı kaldır" ile geri alırsın.
+  - Kimlikle yasakla: oyuncunun 16 karakterlik kimliğini yazarsın.
+  Oyuncular kimliklerini online ad ekranında görür.
+
+D) SORU EKLEMEK
+  GitHub'da site/questions.json dosyasını düzenle ve kaydet (commit et).
+  Site ve Windows uygulaması yeni soruları birkaç dakika içinde (GitHub'ın
+  önbelleği kadar) almaya başlar. Netlify'ı yeniden yayınlamana gerek yok.
 
 Not: Gizlilik ve Kullanım Şartları metinleri hukuki danışmanlık yerine geçmez;
 yayınlamadan önce bir kez gözden geçir.
-.
