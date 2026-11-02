@@ -29,6 +29,8 @@ import online as ol
 import eglence as eg
 import yasak
 import yasal
+import guncelle
+import surum
 from online_ui import OnlineMixin, ONLINE_SCREENS
 
 ONLINE_SCREENS_KEYS = ONLINE_SCREENS
@@ -534,7 +536,8 @@ class Config:
         self.d = {"sure": 0, "ses": True, "konusma": True, "ad": "", "osure": 20,
                   "mod": "klasik", "kategori": "",
                   "oyuncular": ["", "", "", ""], "oyuncu_sayisi": 2,
-                  "pid": "", "sartlar": ""}
+                  "pid": "", "sartlar": "",
+                  "kurulan": "", "deneme": {}, "otomatik_guncelle": True}
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 self.d.update(json.load(f))
@@ -570,6 +573,10 @@ HELP_TEXT = (
     "Online düello\n"
     "Online oynamadan önce Kullanım Şartları'nı ve Gizlilik Politikası'nı kabul edersin. Online sohbette kurallara uy; kural ihlali yapan oyuncunun online erişimi yönetici tarafından kapatılabilir. "
     "Bir rakibi bildirmek için online ekranlarda B tuşuna bas. S sohbet mesajı yazar, H son mesajları okur.\n\n"
+    "Güncelleme\n"
+    "Uygulama açılırken yeni sürüm olup olmadığına bakar; varsa kendiliğinden indirip kurar ve yeniden açılır. "
+    "Eski sürümle online oynanamaz, online için en son sürüm gerekir. Ana menüdeki Güncellemeleri denetle düğmesiyle elle de bakabilirsin. "
+    "Otomatik kurulumu Oyun menüsünden kapatabilirsin; kapalıyken de eski sürümle online oynayamazsın.\n\n"
     "Çok oyunculu (2-4 kişi)\n"
     "Ana menüden Çok Oyunculu'yu seç, oyuncu sayısını ve isimleri gir. Aynı bilgisayarda sırayla oynarsınız; "
     "herkes 5 soru cevaplar ve herkesin kendi jokerleri olur. Sıra değişince ekran okuyucu kimin sırası olduğunu söyler. "
@@ -616,6 +623,26 @@ class MainFrame(OnlineMixin, wx.Frame):
             self.cfg.save()
         self.pid = self.cfg.d["pid"]
         self.ban_map = {}
+        # --- güncelleme durumu
+        if not isinstance(self.cfg.d.get("deneme"), dict):
+            self.cfg.d["deneme"] = {}
+        if not isinstance(self.cfg.d.get("kurulan"), str):
+            self.cfg.d["kurulan"] = ""
+        self.just_updated = ""
+        for a in sys.argv[1:]:   # güncelleme yardımcısı yeni sürümü "--guncellendi=v1.2.3" ile açar
+            if a.startswith("--guncellendi=") and guncelle.parse_version(a.split("=", 1)[1]):
+                self.cfg.d["kurulan"] = a.split("=", 1)[1]
+                self.cfg.d["deneme"] = {}
+                self.just_updated = self.cfg.d["kurulan"]
+                self.cfg.save()
+        guncelle.cleanup_stage()
+        self.latest = None
+        self.update_state = "unknown"      # 'current' | 'outdated' | 'unknown'
+        self.update_checked_at = 0.0
+        self.upd_busy = False
+        self.upd_cancel = False
+        self.upd_info = None
+        self.upd_gauge = None
         self.pending = {"mode": self.cfg.d["mod"], "cat": self.cfg.d.get("kategori", "")}
         self.cats_list = []
         self.speaker = Speaker()
@@ -667,17 +694,27 @@ class MainFrame(OnlineMixin, wx.Frame):
         self.mi_sound.Check(self.sounds.enabled)
         self.mi_speech = m.AppendCheckItem(wx.ID_ANY, "Ekran okuyucu konuşması\tCtrl+K")
         self.mi_speech.Check(self.speaker.enabled)
+        self.mi_auto = m.AppendCheckItem(wx.ID_ANY, "Güncellemeleri açılışta otomatik kur")
+        self.mi_auto.Check(bool(self.cfg.d.get("otomatik_guncelle", True)))
         m.AppendSeparator()
         mi_quit = m.Append(wx.ID_EXIT, "Çıkış\tCtrl+Q")
         mb.Append(m, "&Oyun")
         h = wx.Menu()
         mi_help = h.Append(wx.ID_HELP, "Nasıl oynanır ve kısayollar\tF1")
+        mi_upd = h.Append(wx.ID_ANY, "Güncellemeleri denetle")
         mb.Append(h, "&Yardım")
         self.SetMenuBar(mb)
         self.Bind(wx.EVT_MENU, self.on_toggle_sound, self.mi_sound)
         self.Bind(wx.EVT_MENU, self.on_toggle_speech, self.mi_speech)
         self.Bind(wx.EVT_MENU, lambda e: self.Close(), mi_quit)
         self.Bind(wx.EVT_MENU, lambda e: self.open_help(), mi_help)
+        self.Bind(wx.EVT_MENU, self.on_toggle_auto, self.mi_auto)
+        self.Bind(wx.EVT_MENU, lambda e: self.manual_update_check(), mi_upd)
+
+    def on_toggle_auto(self, _e):
+        self.cfg.d["otomatik_guncelle"] = bool(self.mi_auto.IsChecked())
+        self.cfg.save()
+        self.say("Otomatik güncelleme %s." % ("açık" if self.cfg.d["otomatik_guncelle"] else "kapalı"))
 
     def on_toggle_sound(self, _e):
         self.sounds.enabled = self.mi_sound.IsChecked()
@@ -815,18 +852,187 @@ class MainFrame(OnlineMixin, wx.Frame):
 
     def _startup_job(self):
         self.sounds.ensure()
+        box = {}
+
+        def chk():
+            box["info"] = guncelle.check_latest()
+        t = threading.Thread(target=chk, daemon=True)
+        t.start()
         try:
-            return load_questions()
+            q = load_questions()
         except Exception as e:  # noqa
-            return e
+            q = e
+        t.join(8)
+        return {"q": q, "info": box.get("info")}
 
     def _startup_done(self, res, _err):
-        if isinstance(res, Exception) or res is None:
+        q, info = (res["q"], res["info"]) if isinstance(res, dict) and "q" in res else (res, None)
+        state = self._set_update_info(info)
+        note = None
+        if isinstance(q, Exception) or q is None:
             self.pool = []
-            self.show_home(note="Sorular yüklenemedi. İnternet bağlantını kontrol edip tekrar dene.")
+            note = "Sorular yüklenemedi. İnternet bağlantını kontrol edip tekrar dene."
+        else:
+            self.pool, self.source = q["pool"], q["source"]
+        if state == "outdated" and self.cfg.d.get("otomatik_guncelle", True) \
+                and guncelle.can_self_update(base_dir()):
+            self.start_update(self.latest)
             return
-        self.pool, self.source = res["pool"], res["source"]
-        self.show_home()
+        self.show_home(note=note)
+
+    # ------------------------------------------------------------ güncelleme
+    def _set_update_info(self, info):
+        if info is None:   # denetlenemedi: önceki bilgi geçerli kalır
+            return self.update_state
+        self.latest = info
+        self.update_checked_at = time.time()
+        self.update_state = guncelle.status(info, self.cfg.d.get("kurulan", ""))
+        return self.update_state
+
+    def version_text(self):
+        return guncelle.display_version(surum.APP_VERSION, self.cfg.d.get("kurulan", ""))
+
+    def update_note(self):
+        parts = ["Sürüm %s." % self.version_text()]
+        if self.just_updated:
+            parts.append("Güncellendi: sürüm %s." % guncelle.display_version(self.just_updated))
+            self.just_updated = ""
+        if self.update_state == "outdated" and self.latest:
+            parts.append("Yeni sürüm %s var. Online oynamak için güncellemelisin." %
+                         guncelle.display_version(self.latest["tag"]))
+        return " ".join(parts)
+
+    def manual_update_check(self):
+        if self.upd_busy or self.screen in ("upd", "game", "ready", "turn") or self.screen in ONLINE_SCREENS:
+            self.say("Şu an güncelleme denetlenemez.")
+            return
+        self.say("Güncellemeler denetleniyor…")
+
+        def done(info, _err):
+            if info is None:
+                self.say("Güncelleme denetlenemedi. İnternet bağlantını kontrol edip tekrar dene.")
+                return
+            if self._set_update_info(info) == "outdated":
+                self.start_update(self.latest, manual=True)
+            else:
+                self.say("Uygulamanın son sürümünü kullanıyorsun: %s." % self.version_text())
+        self.run_bg(guncelle.check_latest, done)
+
+    def start_update(self, info, manual=False):
+        if self.upd_busy or not info:
+            return
+        newv = guncelle.display_version(info["tag"])
+        if not guncelle.can_self_update(base_dir()):
+            self.show_update_error(info, "Bu kurulumda otomatik güncelleme yapılamıyor (uygulama paketlenmiş exe olarak "
+                                         "çalışmıyor ya da klasör yazılamıyor). Sürümler sayfasından %s sürümünü indirip "
+                                         "uygulama klasörünün üzerine kopyalayabilirsin." % newv)
+            return
+        d = self.cfg.d.get("deneme") or {}
+        tries = int(d.get("n", 0)) if d.get("tag") == info["tag"] else 0
+        if tries >= 2 and not manual:
+            self.show_update_error(info, "%s sürümü daha önce iki kez kurulmaya çalışıldı ama tamamlanamadı. "
+                                         "Sürümler sayfasından elle indirebilirsin; ya da Tekrar dene düğmesini kullan." % newv)
+            return
+        self.upd_busy = True
+        self.upd_cancel = False
+        self.upd_info = info
+        self.screen = "upd"
+        self.new_screen("Güncelleniyor")
+        self.add_heading("Güncelleniyor")
+        msg = ("Yeni sürüm %s bulundu. İndiriliyor, lütfen bekle. Bitince uygulama kendiliğinden kapanıp yeniden açılacak." % newv)
+        tc = self.add_readonly("Durum", msg, height=110, size=16)
+        self.upd_gauge = wx.Gauge(self.panel, range=100, style=wx.GA_HORIZONTAL)
+        self.col.Add(self.upd_gauge, 0, wx.EXPAND | wx.TOP, 10)
+        self.add_button("İptal et", lambda e: self.go(self.cancel_update))
+        self.finish_layout()
+        tc.SetFocus()
+        self.say(msg)
+        self.run_bg(lambda: self._update_work(info), self._update_done)
+
+    def cancel_update(self):
+        if self.upd_busy:
+            self.upd_cancel = True
+            self.say("Güncelleme iptal ediliyor.")
+
+    def _update_work(self, info):
+        stage = guncelle.prepare_stage()
+        zpath = os.path.join(stage, "paket.zip")
+        last = [-1]
+
+        def prog(got, total):
+            pct = int(got * 100 / total) if total else 0
+            if pct // 20 != last[0]:
+                last[0] = pct // 20
+                wx.CallAfter(self._update_progress, pct)
+        guncelle.download(guncelle.download_url(info), zpath, prog, sha256=info.get("sha256", ""),
+                          cancel=lambda: self.upd_cancel, size_hint=info.get("size", 0))
+        root = guncelle.extract(zpath, stage)
+        return {"root": root, "stage": stage}
+
+    def _update_progress(self, pct):
+        if self.screen != "upd":
+            return
+        try:
+            if self.upd_gauge:
+                self.upd_gauge.SetValue(max(0, min(100, pct)))
+        except RuntimeError:
+            pass
+        self.say("İndiriliyor, yüzde %d." % pct, interrupt=False)
+
+    def _update_done(self, res, err):
+        self.upd_busy = False
+        info = self.upd_info
+        if isinstance(err, guncelle.UpdateCancelled):
+            self.show_home(note="Güncelleme iptal edildi.")
+            return
+        if err or not res:
+            self.show_update_error(info, "İndirme ya da hazırlık başarısız oldu: %s" % (err or "bilinmeyen hata"))
+            return
+        tag = info["tag"]
+        d = self.cfg.d.get("deneme") or {}
+        n = (int(d.get("n", 0)) if d.get("tag") == tag else 0) + 1
+        self.cfg.d["deneme"] = {"tag": tag, "n": n}
+        self.cfg.save()
+        self.say("İndirme tamamlandı. Şimdi kuruluyor; uygulama kapanıp yeniden açılacak.")
+        try:
+            guncelle.apply_frozen(res["root"], base_dir(), tag, res["stage"])
+        except Exception as e:  # noqa
+            self.show_update_error(info, "Kurulum başlatılamadı: %s" % e)
+            return
+        self.online_close()
+        wx.CallLater(900, self.Close, True)
+
+    def show_update_error(self, info, msg):
+        self.online_close()
+        self.screen = "uerr"
+        self.new_screen("Güncelleme yapılamadı")
+        self.add_heading("Güncelleme yapılamadı")
+        tc = self.add_readonly("Bilgi", msg, height=160, size=16)
+        if info and guncelle.can_self_update(base_dir()):
+            self.add_button("Tekrar dene", lambda e: self.go(self.start_update, info, True), primary=True)
+        self.add_button("Sürümler sayfasını aç (tarayıcıda)", lambda e: webbrowser.open(guncelle.RELEASES_URL))
+        self.add_button("Devam et (online kapalı kalır)", lambda e: self.go(self.show_home), primary=not info)
+        self.finish_layout()
+        tc.SetFocus()
+        self.say("Güncelleme yapılamadı. " + msg)
+
+    def show_update_required(self):
+        info = self.latest or {}
+        self.online_close()
+        self.screen = "oupd"
+        self.new_screen("Online için güncelleme gerekli")
+        self.add_heading("Online için güncelleme gerekli")
+        text = ("Online oynamak için uygulamanın son sürümünü kullanman gerekiyor. Senin sürümün %s, en son sürüm %s." %
+                (self.version_text(), guncelle.display_version(info.get("tag", ""))))
+        tc = self.add_readonly("Bilgi", text, height=130, size=16)
+        can = guncelle.can_self_update(base_dir()) and bool(info)
+        if can:
+            self.add_button("Şimdi güncelle", lambda e: self.go(self.start_update, info, True), primary=True)
+        self.add_button("Sürümler sayfasını aç (tarayıcıda)", lambda e: webbrowser.open(guncelle.RELEASES_URL))
+        self.add_button("Geri", lambda e: self.go(self.show_home), primary=not can)
+        self.finish_layout()
+        tc.SetFocus()
+        self.say("Online için güncelleme gerekli. " + text)
 
     # ------------------------------------------------------------ ana menü
     def source_note(self):
@@ -855,7 +1061,7 @@ class MainFrame(OnlineMixin, wx.Frame):
         self.screen = "home"
         self.new_screen("Ana menü")
         self.add_heading(APP_TITLE)
-        info = note or self.source_note()
+        info = (note or self.source_note()) + " " + self.update_note()
         fun = self.fun_note() if self.pool else ""
         self.add_text("Tek başına puan topla, rütbe atla, ya da online bir rakiple düello yap.", 15)
         if fun:
@@ -871,6 +1077,7 @@ class MainFrame(OnlineMixin, wx.Frame):
         self.add_button("Kullanım Şartları", lambda e: self.go(self.show_legal, "terms"))
         self.add_button("Hatalı soru bildir / İletişim (tarayıcıda açılır)",
                         lambda e: webbrowser.open(CONTACT_URL))
+        self.add_button("Güncellemeleri denetle", lambda e: self.go(self.manual_update_check))
         self.add_button("Çıkış", lambda e: self.Close())
         self.finish_layout()
         b.SetFocus()
@@ -1600,8 +1807,10 @@ class MainFrame(OnlineMixin, wx.Frame):
                 self.confirm_exit_game()
             elif scr == "ogame":
                 self.confirm_leave_online()
-            elif scr in ("setup", "help", "oname", "profile", "msetup", "tgate", "obanned"):
+            elif scr in ("setup", "help", "oname", "profile", "msetup", "tgate", "obanned", "oupd", "uerr"):
                 self.go(self.show_home)
+            elif scr == "upd":
+                self.go(self.cancel_update)
             elif scr == "legal":
                 self.go(self.legal_back)
             elif scr in ("omenu", "owait", "odisc"):

@@ -7,6 +7,7 @@ import webbrowser
 import wx
 
 import online as ol
+import guncelle
 import yasak
 import yasal
 
@@ -85,6 +86,9 @@ class OnlineMixin:
 
     def show_online_name(self, error=""):
         self.online_close()
+        if self.update_state == "outdated":
+            self.show_update_required()
+            return
         if self.cfg.d.get("sartlar") != yasal.TERMS_VERSION:
             self.show_terms_gate()
             return
@@ -128,16 +132,27 @@ class OnlineMixin:
         self.guarding = True
         self.say("Kontrol ediliyor…", interrupt=False)
 
+        def work():
+            bans = yasak.fetch_bans()
+            info = None
+            stale = time.time() - self.update_checked_at > 600
+            if self.update_state != "outdated" and (self.update_state == "unknown" or stale):
+                info = guncelle.check_latest()
+            return bans, info
+
         def done(res, err):
             self.guarding = False
-            ok, bans = res if res else (False, {})
+            (ok, bans), info = res if res else ((False, {}), None)
             if ok:
                 self.ban_map = bans
-            if self.pid in self.ban_map:
+            self._set_update_info(info)
+            if self.update_state == "outdated":
+                self.show_update_required()   # eski sürümle online oynanamaz
+            elif self.pid in self.ban_map:
                 self.show_banned(self.ban_map[self.pid])
             else:
                 fn(*args)
-        self.run_bg(yasak.fetch_bans, done)
+        self.run_bg(work, done)
 
     def show_banned(self, until):
         self.online_close()

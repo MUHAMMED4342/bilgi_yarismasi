@@ -19,6 +19,23 @@ Ekran okuyucu uyumlu masaüstü sürümü. Tek başına oyun + online düello (s
 ## Taşınabilir EXE (32 bit)
 `exe_olustur.bat` — 32 bit Python (3.11 önerilir) ile `BilgiYarismasi_tasinabilir.zip` üretir.
 
+## Güncelleme sistemi
+- Uygulama açılırken GitHub'dan en son sürüme bakar. Yeni sürüm varsa **kendiliğinden indirir, kurar ve yeniden açılır** (ilerleme ekran okuyucuya okunur; Esc ya da İptal et ile vazgeçilir).
+- **Eski sürümle online oynanamaz.** Online ekranına girince ya da eşleşme başlatınca sürüm denetlenir; eskiyse "Online için güncelleme gerekli" ekranı açılır. Tek başına, günlük meydan okuma ve çok oyunculu modlar eski sürümle de çalışır.
+- GitHub'a ulaşılamıyorsa (internet yoksa) herkes engellenmesin diye online serbest bırakılır.
+- Ana menüde **Güncellemeleri denetle** düğmesi ve Oyun menüsünde **Güncellemeleri açılışta otomatik kur** anahtarı var. Otomatik kurulum kapalıyken de eski sürümle online oynanamaz.
+- Otomatik kurulum yalnızca paketlenmiş **exe** için (Windows) çalışır; `calistir.bat` ile Python'dan çalışan kaynak kod kendi dosyalarını değiştirmez, sadece haber verir.
+- Kullanıcı verileri (`veri` klasörü: ayarlar, profil, oyuncu kimliği) güncellemede korunur.
+- Bir güncelleme iki kez art arda kurulamazsa otomatik deneme durur ve "Sürümler sayfasından elle indir" denir.
+
+### Yeni sürüm nasıl yayınlanır
+1. `surum.py` içindeki `APP_VERSION` değerini artır (örn. `"1.0.1"`).
+2. `exe_olustur.bat` ile EXE zip'ini üret (sonunda hangi etiketi kullanacağını yazar).
+3. GitHub → Releases → Create a new release. **Etiket (tag) tam olarak `v` + sürüm** olmalı (örn. `v1.0.1`). `BilgiYarismasi_tasinabilir.zip` dosyasını adını değiştirmeden ekle, Publish release de.
+4. Kullanıcılar uygulamayı açınca yeni sürümü kendiliğinden alır; eski sürüm online'a giremez.
+
+Not: Güncelleme sistemi bu sürümle (1.0.0) birlikte gelir; daha eski bir kurulumu kullananlar bir kez elle yeni zip'i indirmeli.
+
 ## Güvenlik ve gizlilik
 - Ana menüde **Gizlilik Politikası** ve **Kullanım Şartları** ekranları var (metin kutusunda okunur, isteyen sitede açabilir).
 - Online oynamadan önce şartlar bir kez onaylatılır.
@@ -28,6 +45,8 @@ Ekran okuyucu uyumlu masaüstü sürümü. Tek başına oyun + online düello (s
 ## Dosyalar
 - `bilgi_yarismasi.py` — ana uygulama ve arayüz
 - `eglence.py` — puan, rütbe, başarım, günlük meydan okuma, arkadaş jokeri (arayüzden bağımsız)
+- `surum.py` — uygulama sürümü (yeni sürüm çıkarırken ilk burayı artır)
+- `guncelle.py` — güncelleme denetimi ve kurulumu (GitHub Releases üzerinden)
 - `yasak.py` — oyuncu kimliği, yasak listesi kontrolü ve rakip bildirimi (sitedeki /api uçlarıyla konuşur)
 - `yasal.py` — Gizlilik Politikası ve Kullanım Şartları metinleri (siteyle aynı içerik)
 - `online.py` — MQTT taşıyıcı, eşleşme, düello kuralları

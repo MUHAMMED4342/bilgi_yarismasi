@@ -6,3 +6,7 @@ build/
 dist/
 *.zip
 .DS_Store
+
+BilgiYarismasi_tasinabilir/
+windows_uygulamasi/BilgiYarismasi_tasinabilir/
+bilgi_yarisma_sitesi/

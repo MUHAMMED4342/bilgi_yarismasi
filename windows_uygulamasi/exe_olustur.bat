@@ -10,7 +10,7 @@ rem 32 bit Python otomatik bulunamazsa buraya tam yolunu yazabilirsin. Ornek: C:
 set "PY32="
 rem ====================
 
-for %%F in (bilgi_yarismasi.py eglence.py yasak.py yasal.py online.py online_ui.py) do (
+for %%F in (bilgi_yarismasi.py eglence.py yasak.py yasal.py surum.py guncelle.py online.py online_ui.py) do (
   if not exist "%%F" (
     echo [HATA] %%F bulunamadi. Tum .py dosyalari bu bat dosyasiyla ayni klasorde olmali.
     pause & exit /b 1
@@ -88,4 +88,11 @@ if errorlevel 1 ( echo [HATA] ZIP olusturulamadi. & pause & exit /b 1 )
 echo.
 echo TAMAM: %~dp0BilgiYarismasi_tasinabilir.zip
 echo Klasor surumu: %~dp0%OUT%
+for /f "delims=" %%V in ('%VP% -c "import surum;print(surum.APP_VERSION)"') do set "APPVER=%%V"
+echo.
+echo ===== GITHUB SURUMU =====
+echo Uygulama surumu: %APPVER%
+echo GitHub'da yeni surum (Release) olustururken ETIKET (tag) tam olarak: v%APPVER%
+echo Yuklenecek dosya: BilgiYarismasi_tasinabilir.zip  (adini degistirme)
+echo Yeni surum cikarirken once surum.py icindeki APP_VERSION degerini artir.
 pause
